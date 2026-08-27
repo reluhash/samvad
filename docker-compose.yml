@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  livekit:
+    image: livekit/livekit-server:latest
+    command: --config /livekit.yaml
+    volumes:
+      - ./livekit.yaml:/livekit.yaml
+      - /home/ubuntu/lk-proxy-cert.pem:/home/ubuntu/lk-proxy-cert.pem:ro
+      - /home/ubuntu/lk-proxy-key.pem:/home/ubuntu/lk-proxy-key.pem:ro
+    network_mode: "host"
+    restart: unless-stopped
+
+  redis:
+    image: redis:alpine
+    command: redis-server --unixsocket /data/redis.sock --unixsocketperm 777 --port 6379
+    volumes:
+      - ./redis-data:/data
+    network_mode: "host"
+    restart: unless-stopped

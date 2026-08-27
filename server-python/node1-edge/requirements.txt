@@ -1,0 +1,12 @@
+livekit-agents
+livekit-api
+numpy
+aiohttp
+torch
+torchaudio
+silero-vad
+faster-whisper
+openai
+pedalboard
+soundfile
+websockets

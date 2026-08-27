@@ -1,0 +1,33 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Node & Python dependencies
+node_modules
+.venv
+__pycache__
+*.pyc
+
+# Builds
+dist
+dist-ssr
+*.local
+
+# Uploads & temporary media
+uploads/voice-samples/*
+!uploads/voice-samples/.gitkeep
+
+# Environment variables
+.env
+.env.local
+
+# Editor & OS
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.sw?
