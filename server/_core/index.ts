@@ -1,11 +1,10 @@
 import "dotenv/config";
 import express from "express";
-import { createServer } from "http";
+import http, { createServer } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import net from "net";
 import path from "path";
 import fs from "fs";
-import { fileURLToPath } from "url";
 import multer from "multer";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
@@ -14,10 +13,6 @@ import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
-import { getDb } from "../db";
-import { calls, callTranscripts } from "../../drizzle/schema";
-import { eq } from "drizzle-orm";
-import { invokeLLM } from "./llm";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -65,18 +60,68 @@ async function startServer() {
   registerOAuthRoutes(app);
   registerLocalAuthRoutes(app);
 
-  // Twilio webhooks removed for local LiveKit architecture
+  // ─── Telephony & PSTN Proxy (Routes to forwarded GPU bridge on :5000) ──────
+  app.all("/twilio/*", (req, res) => {
+    const originalHost = req.headers["host"] || "samvad.reluhashai.com";
+    const options: http.RequestOptions = {
+      hostname: "127.0.0.1",
+      port: 5000,
+      path: req.originalUrl,
+      method: req.method,
+      headers: {
+        ...req.headers,
+        "x-forwarded-host": originalHost,
+        "x-forwarded-proto": "https",
+        host: originalHost
+      },
+    };
+    const proxyReq = http.request(options, (proxyRes) => {
+      res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
+      proxyRes.pipe(res);
+    });
+    proxyReq.on("error", (err) => {
+      console.error("[Telephony Proxy Error]:", err.message);
+      res.status(502).send("Bad Gateway to Telephony Bridge");
+    });
+    if (req.body && Object.keys(req.body).length > 0) {
+      const data = req.headers["content-type"] === "application/x-www-form-urlencoded"
+        ? new URLSearchParams(req.body as Record<string, string>).toString()
+        : JSON.stringify(req.body);
+      proxyReq.write(data);
+    }
+    proxyReq.end();
+  });
+
+  app.all("/api/v1/calls/*", (req, res) => {
+    const options: http.RequestOptions = {
+      hostname: "127.0.0.1",
+      port: 5000,
+      path: req.originalUrl,
+      method: req.method,
+      headers: { ...req.headers, host: "127.0.0.1:5000" },
+    };
+    const proxyReq = http.request(options, (proxyRes) => {
+      res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
+      proxyRes.pipe(res);
+    });
+    proxyReq.on("error", (err) => {
+      console.error("[Calls Proxy Error]:", err.message);
+      res.status(502).json({ error: err.message });
+    });
+    if (req.body && Object.keys(req.body).length > 0) {
+      proxyReq.write(JSON.stringify(req.body));
+    }
+    proxyReq.end();
+  });
 
   // ─── Local Uploads Directory ──────────────────────────────────────────────
   const uploadsDir = path.resolve(process.cwd(), "uploads/voice-samples");
   if (!fs.existsSync(uploadsDir)) {
     fs.mkdirSync(uploadsDir, { recursive: true });
   }
-  // Serve uploaded files statically
   app.use("/uploads", express.static(path.resolve(process.cwd(), "uploads")));
 
   // ─── File Upload Route ────────────────────────────────────────────────────
-  // Accepts multipart/form-data with a "file" field (audio sample for voice cloning)
   app.post("/api/upload", upload.single("file"), async (req, res) => {
     try {
       if (!req.file) {
@@ -97,9 +142,6 @@ async function startServer() {
     }
   });
 
-
-  // Retell cloning endpoint removed for local architecture
-
   // tRPC API
   app.use(
     "/api/trpc",
@@ -109,9 +151,7 @@ async function startServer() {
     })
   );
 
-  // ─── WebSocket Server for real-time transcript streaming ──────────────────
-  // Use noServer:true to avoid intercepting Vite HMR WebSocket upgrades.
-  // We manually route only /api/ws/call upgrades to our WSS.
+  // ─── WebSocket Server & Telephony Media Stream Proxy ──────────────────────
   const wss = new WebSocketServer({ noServer: true });
 
   server.on("upgrade", (req, socket, head) => {
@@ -120,8 +160,31 @@ async function startServer() {
       wss.handleUpgrade(req, socket, head, (ws) => {
         wss.emit("connection", ws, req);
       });
+    } else if (url.pathname.startsWith("/media/stream/")) {
+      // Forward Twilio media stream WebSocket directly to bridge on :5000
+      const targetReq = http.request({
+        hostname: "127.0.0.1",
+        port: 5000,
+        path: req.url,
+        method: "GET",
+        headers: req.headers,
+      });
+      targetReq.on("upgrade", (targetRes, targetSocket, targetHead) => {
+        socket.write(
+          `HTTP/1.1 101 Switching Protocols\r\n` +
+          `Upgrade: websocket\r\n` +
+          `Connection: Upgrade\r\n` +
+          `Sec-WebSocket-Accept: ${targetRes.headers["sec-websocket-accept"]}\r\n\r\n`
+        );
+        targetSocket.pipe(socket);
+        socket.pipe(targetSocket);
+      });
+      targetReq.on("error", (e) => {
+        console.error("[Telephony WS Proxy Error]:", e.message);
+        socket.destroy();
+      });
+      targetReq.end();
     }
-    // All other upgrade requests (e.g. Vite HMR) are left for Vite's own listener
   });
 
   wss.on("connection", (ws, req) => {
@@ -148,7 +211,6 @@ async function startServer() {
     });
   });
 
-  // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
     await setupVite(app, server);
   } else {
