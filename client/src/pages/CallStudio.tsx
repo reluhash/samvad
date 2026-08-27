@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { LiveKitRoom, RoomAudioRenderer, useConnectionState, useVoiceAssistant } from "@livekit/components-react";
-import "@livekit/components-styles";
+import { useDirectVoiceSession } from "@/hooks/useDirectVoiceSession";
 import { useAuth } from "@/_core/hooks/useAuth";
 
 import { trpc } from "@/lib/trpc";
@@ -184,6 +183,7 @@ export default function CallStudio() {
 
   // Web call state
   
+    const directVoice = useDirectVoiceSession();
   const [webCallStatus, setWebCallStatus] = useState<"idle" | "connecting" | "active" | "ended">("idle");
   const [liveKitToken, setLiveKitToken] = useState("");
   const [agentTalking, setAgentTalking] = useState(false);
@@ -226,7 +226,7 @@ export default function CallStudio() {
   const stopMutation = trpc.calls.stop.useMutation();
 
   const stopWebCall = (userInitiated = true) => {
-    // Mark call as completed in DB
+    directVoice.stop();
     const callId = activeCallIdRef.current;
     if (callId) {
       stopMutation.mutate({ callId });
@@ -303,6 +303,24 @@ export default function CallStudio() {
   };
 
   const handleInitiateCall = () => {
+    if (isWebCall) {
+      setWebCallStatus("connecting");
+      directVoice.start({
+        voiceId: selectedVoiceId || "Kokoro-en",
+        language,
+        systemPrompt: systemPrompt || "You are a helpful, conversational voice assistant.",
+        onTalkingChange: (talking) => setAgentTalking(talking),
+        onError: () => stopWebCall(false),
+        onEnded: () => stopWebCall(true),
+      }).then(() => {
+        setWebCallStatus("active");
+        toast.success("Web call connected!");
+      }).catch((e) => {
+        toast.error(e.message || "Failed to connect");
+        stopWebCall(false);
+      });
+      return;
+    }
     if (isMeetingType) {
       if (!meetingDialIn.trim()) { toast.error("Please enter the meeting dial-in phone number"); return; }
       if (!meetingPin.trim()) { toast.error("Please enter the meeting PIN"); return; }
@@ -343,27 +361,7 @@ export default function CallStudio() {
 
   return (
     <div className="h-full flex flex-col overflow-auto">
-      {liveKitToken && (
-        <LiveKitRoom
-          token={liveKitToken}
-          serverUrl={import.meta.env.VITE_LIVEKIT_URL || "wss://140.245.220.66:7443"}
-          connect={true}
-          audio={true}
-          video={false}
-          onConnected={() => setWebCallStatus("active")}
-          onDisconnected={() => stopWebCall(false)}
-          onError={(error) => {
-            console.error("LiveKit connection error:", error);
-            toast.error(
-              "Connection failed: SSL Certificate Untrusted. Please visit https://140.245.220.66:7443 in a new tab, click 'Advanced' -> 'Proceed', then try again.",
-              { duration: 15000 }
-            );
-            stopWebCall(false);
-          }}
-        >
-          <RoomAudioRenderer />
-        </LiveKitRoom>
-      )}
+      
       {webCallStatus !== "idle" && (
         <WebCallOverlay
           status={webCallStatus}
