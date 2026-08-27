@@ -22,9 +22,18 @@ export function useDirectVoiceSession() {
   const processorNodeRef = useRef<ScriptProcessorNode | null>(null);
   const nextPlayTimeRef = useRef<number>(0);
   const isAgentTalkingRef = useRef<boolean>(false);
+  const scheduledSourcesRef = useRef<AudioBufferSourceNode[]>([]);
 
   const stop = useCallback(() => {
-    // 1. Close microphone & audio processor
+    // 1. Stop all playing audio sources
+    scheduledSourcesRef.current.forEach((src) => {
+      try {
+        src.stop();
+      } catch (_) {}
+    });
+    scheduledSourcesRef.current = [];
+
+    // 2. Close microphone & audio processor
     if (processorNodeRef.current) {
       processorNodeRef.current.disconnect();
       processorNodeRef.current = null;
@@ -38,7 +47,7 @@ export function useDirectVoiceSession() {
       audioCtxRef.current = null;
     }
 
-    // 2. Close WebSocket
+    // 3. Close WebSocket
     if (wsRef.current) {
       wsRef.current.onclose = null;
       wsRef.current.onerror = null;
@@ -61,10 +70,10 @@ export function useDirectVoiceSession() {
     setIsConnecting(true);
 
     try {
-      // 1. Access user microphone (24kHz Mono)
+      // 1. Access user microphone (16kHz Native Whisper Rate)
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
-          sampleRate: 24000,
+          sampleRate: 16000,
           channelCount: 1,
           echoCancellation: true,
           noiseSuppression: true,
@@ -74,14 +83,20 @@ export function useDirectVoiceSession() {
       micStreamRef.current = stream;
 
       const audioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)({
-        sampleRate: 24000,
+        sampleRate: 16000,
       });
       audioCtxRef.current = audioCtx;
       if (audioCtx.state === "suspended") {
         await audioCtx.resume();
       }
 
-      // 2. Connect to direct S2S Realtime WebSocket
+      // Map voice ID (if custom cloned voice or generic, fallback gracefully so TTS never fails)
+      let targetVoice = options.voiceId || "af_heart";
+      if (targetVoice === "default") {
+        targetVoice = options.language?.startsWith("hi") ? "Aanchal-hi" : "af_heart";
+      }
+
+      // 2. Connect to S2S Realtime WebSocket
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       const wsUrl = `${protocol}//${window.location.host}/v1/realtime`;
       const ws = new WebSocket(wsUrl);
@@ -95,8 +110,8 @@ export function useDirectVoiceSession() {
         const sessionMsg = {
           type: "session.update",
           session: {
-            instructions: options.systemPrompt || "You are a helpful, natural conversational voice assistant.",
-            voice: options.voiceId || "Kokoro-en",
+            instructions: options.systemPrompt || "You are a helpful, friendly AI voice assistant. Reply in one short, natural sentence.",
+            voice: targetVoice,
             input_audio_format: "pcm16",
             output_audio_format: "pcm16",
             turn_detection: {
@@ -109,7 +124,7 @@ export function useDirectVoiceSession() {
         };
         ws.send(JSON.stringify(sessionMsg));
 
-        // 3. Setup Audio Capture & Streaming
+        // 3. Setup Audio Capture & Streaming (16kHz mono PCM16)
         const sourceNode = audioCtx.createMediaStreamSource(stream);
         const processor = audioCtx.createScriptProcessor(2048, 1, 1);
         processorNodeRef.current = processor;
@@ -149,7 +164,6 @@ export function useDirectVoiceSession() {
           const type = msg.type || "";
 
           if (type === "response.audio.delta" && msg.delta) {
-            // Play audio chunk
             if (!isAgentTalkingRef.current) {
               isAgentTalkingRef.current = true;
               setIsAgentTalking(true);
@@ -168,12 +182,18 @@ export function useDirectVoiceSession() {
             }
 
             if (audioCtxRef.current && audioCtxRef.current.state !== "closed") {
-              const buffer = audioCtxRef.current.createBuffer(1, float32.length, 24000);
+              const buffer = audioCtxRef.current.createBuffer(1, float32.length, 16000);
               buffer.getChannelData(0).set(float32);
 
               const bufferSource = audioCtxRef.current.createBufferSource();
               bufferSource.buffer = buffer;
               bufferSource.connect(audioCtxRef.current.destination);
+
+              scheduledSourcesRef.current.push(bufferSource);
+              bufferSource.onended = () => {
+                const idx = scheduledSourcesRef.current.indexOf(bufferSource);
+                if (idx !== -1) scheduledSourcesRef.current.splice(idx, 1);
+              };
 
               const now = audioCtxRef.current.currentTime;
               const startTime = Math.max(now, nextPlayTimeRef.current);
@@ -181,7 +201,11 @@ export function useDirectVoiceSession() {
               nextPlayTimeRef.current = startTime + buffer.duration;
             }
           } else if (type === "input_audio_buffer.speech_started") {
-            // Barge-in: user started speaking -> cut off agent audio immediately
+            // Instant barge-in: stop all scheduled playback
+            scheduledSourcesRef.current.forEach((src) => {
+              try { src.stop(); } catch (_) {}
+            });
+            scheduledSourcesRef.current = [];
             if (audioCtxRef.current) {
               nextPlayTimeRef.current = audioCtxRef.current.currentTime;
             }
@@ -201,7 +225,7 @@ export function useDirectVoiceSession() {
                 setIsAgentTalking(false);
                 options.onTalkingChange?.(false);
               }
-            }, 500);
+            }, 400);
           }
         } catch (e) {
           console.error("Error processing realtime message:", e);
