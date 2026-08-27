@@ -219,6 +219,7 @@ export default function CallStudio() {
 
   // Data
   const { data: savedVoices = [] } = trpc.voices.listSaved.useQuery(undefined, { enabled: isAuthenticated });
+  const { data: premadeVoices = [] } = trpc.voices.listRetell.useQuery();
 
   // Clean up web call on unmount
   
@@ -288,10 +289,14 @@ export default function CallStudio() {
     onError: (e) => toast.error(e.message),
   });
 
-  // Voice list from saved library
-  const allVoices = (savedVoices as Array<{ id: number; retellVoiceId: string; name: string; category: string }>).map(
-    (v) => ({ rowId: v.id, id: v.retellVoiceId, name: v.name, badge: v.category })
+  // Voice list: premade catalog + user saved/cloned voices
+  const premadeList = (premadeVoices as Array<{ voice_id: string; voice_name: string; provider: string; category: string }>).map(
+    (v, i) => ({ rowId: `premade-${i}`, id: v.voice_id, name: v.voice_name, badge: v.provider || v.category })
   );
+  const savedList = (savedVoices as Array<{ id: number; retellVoiceId: string; name: string; category: string }>).map(
+    (v) => ({ rowId: `saved-${v.id}`, id: v.retellVoiceId, name: v.name, badge: v.category })
+  );
+  const allVoices = [...premadeList, ...savedList];
 
   const callTypeConfig = CALL_TYPES.find((t) => t.value === callType)!;
 
@@ -493,7 +498,7 @@ export default function CallStudio() {
                   </SelectTrigger>
                   <SelectContent>
                     {allVoices.map((v) => (
-                      <SelectItem key={`voice-${v.rowId}`} value={v.id}>
+                      <SelectItem key={v.rowId} value={v.id}>
                         <div className="flex items-center gap-2">
                           <span>{v.name}</span>
                           <Badge variant="secondary" className="text-xs capitalize">{v.badge}</Badge>
