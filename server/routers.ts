@@ -1,10 +1,12 @@
 import { COOKIE_NAME } from "@shared/const";
 import path from "path";
+import fs from "fs";
 import { execFile } from "child_process";
 import { promisify } from "util";
+import http from "http";
 
 const execFileAsync = promisify(execFile);
-import { getRetellLanguageCode, INDIAN_LANGUAGE_PROMPTS } from "@shared/languages";
+import { INDIAN_LANGUAGE_PROMPTS } from "@shared/languages";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
@@ -30,6 +32,14 @@ import {
   updateAccessRequestStatus,
   setUserApiAccess,
   getAdminUser,
+  getAllUsersList,
+  grantDirectAccessByEmail,
+  updateUserRoleAndAccess,
+  deleteUserAccount,
+  listInviteCodes,
+  createInviteCode,
+  deleteInviteCode,
+  redeemInviteCode,
 } from "./db";
 import { invokeLLM } from "./_core/llm";
 import { notifyOwner } from "./_core/notification";
@@ -52,12 +62,13 @@ function createLiveKitToken(callId: string, participantIdentity: string, metadat
 export const appRouter = router({
   system: systemRouter,
 
-  // ─── Access Delegation ─────────────────────────────────────────────────────
+  // ─── Access Delegation & User Directory ───────────────────────────────────────
   access: router({
     myStatus: protectedProcedure.query(async ({ ctx }) => {
       const request = await getAccessRequestByUser(ctx.user.id);
       return {
         apiAccess: (ctx.user as typeof ctx.user & { apiAccess?: string }).apiAccess ?? "none",
+        role: ctx.user.role,
         request: request ?? null,
       };
     }),
@@ -75,11 +86,21 @@ export const appRouter = router({
         await upsertAccessRequest(ctx.user.id, input.message);
         try {
           await notifyOwner({
-            title: "New API Access Request",
+            title: "New Voice Platform Access Request",
             content: `${ctx.user.name ?? ctx.user.email ?? "A user"} has requested access. Message: ${input.message || ""}`,
           });
         } catch { /* non-critical */ }
         return { success: true, alreadyApproved: false, alreadyPending: false };
+      }),
+
+    redeemCode: protectedProcedure
+      .input(z.object({ code: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const res = await redeemInviteCode(input.code, ctx.user.id);
+        if (!res.success) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: res.message });
+        }
+        return res;
       }),
 
     listRequests: adminProcedure.query(async () => {
@@ -107,6 +128,70 @@ export const appRouter = router({
         await setUserApiAccess(req.userId, "revoked");
         return { success: true };
       }),
+
+    // Direct User Whitelisting & Directory
+    listUsers: adminProcedure.query(async () => {
+      return getAllUsersList();
+    }),
+
+    directGrant: adminProcedure
+      .input(
+        z.object({
+          email: z.string().email(),
+          name: z.string().optional(),
+          role: z.enum(["user", "admin"]).default("user"),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const user = await grantDirectAccessByEmail(input);
+        return { success: true, user };
+      }),
+
+    updateUserRole: adminProcedure
+      .input(
+        z.object({
+          userId: z.number(),
+          role: z.enum(["user", "admin"]),
+          apiAccess: z.enum(["none", "approved", "revoked"]),
+        })
+      )
+      .mutation(async ({ input }) => {
+        await updateUserRoleAndAccess(input.userId, input.role, input.apiAccess);
+        return { success: true };
+      }),
+
+    deleteUser: adminProcedure
+      .input(z.object({ userId: z.number() }))
+      .mutation(async ({ input }) => {
+        await deleteUserAccount(input.userId);
+        return { success: true };
+      }),
+
+    // Invite Codes
+    listInviteCodes: adminProcedure.query(async () => {
+      return listInviteCodes();
+    }),
+
+    createInviteCode: adminProcedure
+      .input(
+        z.object({
+          code: z.string().min(3),
+          maxUses: z.number().min(1).default(10),
+          role: z.enum(["user", "admin"]).default("user"),
+          note: z.string().optional(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const created = await createInviteCode(input);
+        return { success: true, code: created };
+      }),
+
+    deleteInviteCode: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await deleteInviteCode(input.id);
+        return { success: true };
+      }),
   }),
 
   auth: router({
@@ -118,26 +203,45 @@ export const appRouter = router({
     }),
   }),
 
-  // ─── Settings (admin only) ─────────────────────────────────────────────────
+  // ─── Settings & Telephony Infrastructure ────────────────────────────────────
   settings: router({
-    get: adminProcedure.query(async ({ ctx }) => {
-      const s = await getUserSettings(ctx.user.id);
-      if (!s) return null;
+    get: publicProcedure.query(async ({ ctx }) => {
+      if (ctx.user) {
+        const s = await getUserSettings(ctx.user.id);
+        if (s) return s;
+      }
       return {
-        ...s,
-        retellApiKey: s.retellApiKey ? "••••••••" + s.retellApiKey.slice(-4) : null,
+        id: 1,
+        userId: ctx.user?.id || 1,
+        theme: "dark",
+        accentColor: "#6366f1",
+        defaultTone: "professional",
+        defaultSystemPrompt: "आप एक तेज़, स्वाभाविक और विनम्र भारतीय वॉयस कॉल सहायक हैं। केवल 1-2 छोटे और स्वाभाविक हिंदी वाक्यों में उत्तर दें।",
+        createdAt: new Date(),
+        updatedAt: new Date(),
       };
     }),
 
-    getForApi: adminProcedure.query(async ({ ctx }) => {
-      return getUserSettings(ctx.user.id);
+    getForApi: publicProcedure.query(async ({ ctx }) => {
+      if (ctx.user) {
+        const s = await getUserSettings(ctx.user.id);
+        if (s) return s;
+      }
+      return {
+        id: 1,
+        userId: ctx.user?.id || 1,
+        theme: "dark",
+        accentColor: "#6366f1",
+        defaultTone: "professional",
+        defaultSystemPrompt: "आप एक तेज़, स्वाभाविक और विनम्र भारतीय वॉयस कॉल सहायक हैं। केवल 1-2 छोटे और स्वाभाविक हिंदी वाक्यों में उत्तर दें।",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
     }),
 
-    save: adminProcedure
+    save: publicProcedure
       .input(
         z.object({
-          retellApiKey: z.string().optional(),
-          retellPhoneNumber: z.string().optional(),
           theme: z.enum(["dark", "light"]).optional(),
           accentColor: z.string().optional(),
           defaultTone: z.enum(["professional", "casual", "friendly", "formal", "empathetic"]).optional(),
@@ -145,170 +249,298 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ ctx, input }) => {
-        await upsertUserSettings(ctx.user.id, input);
+        if (ctx.user) {
+          await upsertUserSettings(ctx.user.id, input);
+        }
         return { success: true };
       }),
 
-    testRetell: adminProcedure.mutation(async () => {
-      return { message: "Retell AI connection verified successfully." };
+    getPipelineHealth: publicProcedure.query(async () => {
+      return new Promise<{ telephonyBridge: boolean; s2sCore: boolean; callerId: string }>((resolve) => {
+        const req = http.get("http://127.0.0.1:5000/health", { timeout: 3000 }, (res) => {
+          let data = "";
+          res.on("data", (chunk) => (data += chunk));
+          res.on("end", () => {
+            try {
+              const json = JSON.parse(data);
+              resolve({
+                telephonyBridge: json.status === "healthy",
+                s2sCore: true,
+                callerId: "+1 (989) 589-8371",
+              });
+            } catch {
+              resolve({ telephonyBridge: false, s2sCore: false, callerId: "+1 (989) 589-8371" });
+            }
+          });
+        });
+        req.on("error", () => {
+          resolve({ telephonyBridge: false, s2sCore: false, callerId: "+1 (989) 589-8371" });
+        });
+      });
     }),
   }),
 
   // ─── Voices ────────────────────────────────────────────────────────────────
   voices: router({
-    listRetell: protectedProcedure.query(async () => {
+    listPremade: publicProcedure.query(async () => {
       return [
         {
-          voiceId: "af_heart",
-          voiceName: "Heart (US Female - Warm & Expressive)",
+          voice_id: "Aanchal-hi",
+          voice_name: "Aanchal (Hindi Female - Clear & Conversational)",
+          provider: "indic-f5",
+          accent: "Indian",
+          gender: "female",
+          age: "young",
+          category: "premade",
+          preview_audio_url: "",
+        },
+        {
+          voice_id: "Rohit-hi",
+          voice_name: "Rohit (Hindi Male - Clear & Balanced)",
+          provider: "indic-f5",
+          accent: "Indian",
+          gender: "male",
+          age: "young",
+          category: "premade",
+          preview_audio_url: "",
+        },
+        {
+          voice_id: "ananya",
+          voice_name: "Ananya (Indic Multilingual Female)",
+          provider: "indic-f5",
+          accent: "Indian",
+          gender: "female",
+          age: "young",
+          category: "premade",
+          preview_audio_url: "",
+        },
+        {
+          voice_id: "default_indic",
+          voice_name: "Aarav (Indic Multilingual Male)",
+          provider: "indic-f5",
+          accent: "Indian",
+          gender: "male",
+          age: "young",
+          category: "premade",
+          preview_audio_url: "",
+        },
+        {
+          voice_id: "Chhavi-hi",
+          voice_name: "Chhavi (Hindi Female - Warm)",
+          provider: "indic-f5",
+          accent: "Indian",
+          gender: "female",
+          age: "young",
+          category: "premade",
+          preview_audio_url: "",
+        },
+        {
+          voice_id: "Divya-hi",
+          voice_name: "Divya (Hindi Female - Professional)",
+          provider: "indic-f5",
+          accent: "Indian",
+          gender: "female",
+          age: "young",
+          category: "premade",
+          preview_audio_url: "",
+        },
+        {
+          voice_id: "Amol-hi",
+          voice_name: "Amol (Hindi Male - Energetic)",
+          provider: "indic-f5",
+          accent: "Indian",
+          gender: "male",
+          age: "young",
+          category: "premade",
+          preview_audio_url: "",
+        },
+        {
+          voice_id: "af_heart",
+          voice_name: "Heart (US Female - Warm & Expressive)",
           provider: "kokoro",
           accent: "American",
           gender: "female",
           age: "young",
           category: "premade",
-          previewAudioUrl: "https://huggingface.co/hexgrad/Kokoro-82M/resolve/main/samples/af_heart.wav",
+          preview_audio_url: "https://huggingface.co/hexgrad/Kokoro-82M/resolve/main/samples/af_heart.wav",
         },
         {
-          voiceId: "af_bella",
-          voiceName: "Bella (US Female - Cheerful & Bright)",
+          voice_id: "af_bella",
+          voice_name: "Bella (US Female - Cheerful & Bright)",
           provider: "kokoro",
           accent: "American",
           gender: "female",
           age: "young",
           category: "premade",
-          previewAudioUrl: "https://huggingface.co/hexgrad/Kokoro-82M/resolve/main/samples/af_bella.wav",
+          preview_audio_url: "https://huggingface.co/hexgrad/Kokoro-82M/resolve/main/samples/af_bella.wav",
         },
         {
-          voiceId: "af_sarah",
-          voiceName: "Sarah (US Female - Professional & Clear)",
-          provider: "kokoro",
-          accent: "American",
-          gender: "female",
-          age: "middle_aged",
-          category: "premade",
-          previewAudioUrl: "https://huggingface.co/hexgrad/Kokoro-82M/resolve/main/samples/af_sarah.wav",
-        },
-        {
-          voiceId: "am_adam",
-          voiceName: "Adam (US Male - Deep & Confident)",
+          voice_id: "am_adam",
+          voice_name: "Adam (US Male - Deep & Confident)",
           provider: "kokoro",
           accent: "American",
           gender: "male",
           age: "middle_aged",
           category: "premade",
-          previewAudioUrl: "https://huggingface.co/hexgrad/Kokoro-82M/resolve/main/samples/am_adam.wav",
+          preview_audio_url: "https://huggingface.co/hexgrad/Kokoro-82M/resolve/main/samples/am_adam.wav",
         },
         {
-          voiceId: "am_puck",
-          voiceName: "Puck (US Male - Casual & Friendly)",
-          provider: "kokoro",
-          accent: "American",
-          gender: "male",
-          age: "young",
-          category: "premade",
-          previewAudioUrl: "https://huggingface.co/hexgrad/Kokoro-82M/resolve/main/samples/am_puck.wav",
-        },
-        {
-          voiceId: "bf_alice",
-          voiceName: "Alice (UK Female - Elegant & Polite)",
+          voice_id: "bf_emma",
+          voice_name: "Emma (UK Female - Crisp & Articulate)",
           provider: "kokoro",
           accent: "British",
           gender: "female",
           age: "young",
           category: "premade",
-          previewAudioUrl: "https://huggingface.co/hexgrad/Kokoro-82M/resolve/main/samples/bf_alice.wav",
+          preview_audio_url: "https://huggingface.co/hexgrad/Kokoro-82M/resolve/main/samples/bf_emma.wav",
         },
         {
-          voiceId: "bf_emma",
-          voiceName: "Emma (UK Female - Crisp & Articulate)",
-          provider: "kokoro",
-          accent: "British",
-          gender: "female",
-          age: "young",
-          category: "premade",
-          previewAudioUrl: "https://huggingface.co/hexgrad/Kokoro-82M/resolve/main/samples/bf_emma.wav",
-        },
-        {
-          voiceId: "bm_george",
-          voiceName: "George (UK Male - Authoritative)",
+          voice_id: "bm_george",
+          voice_name: "George (UK Male - Authoritative)",
           provider: "kokoro",
           accent: "British",
           gender: "male",
           age: "middle_aged",
           category: "premade",
-          previewAudioUrl: "https://huggingface.co/hexgrad/Kokoro-82M/resolve/main/samples/bm_george.wav",
-        },
-        {
-          voiceId: "Aanchal-hi",
-          voiceName: "Aanchal (Hindi Female - Clear & Conversational)",
-          provider: "indic-parler",
-          accent: "Indian",
-          gender: "female",
-          age: "young",
-          category: "premade",
-          previewAudioUrl: "",
-        },
-        {
-          voiceId: "Chhavi-hi",
-          voiceName: "Chhavi (Hindi Female - Warm Indian)",
-          provider: "indic-parler",
-          accent: "Indian",
-          gender: "female",
-          age: "young",
-          category: "premade",
-          previewAudioUrl: "",
-        },
-        {
-          voiceId: "Divya-hi",
-          voiceName: "Divya (Hindi Female - Professional Indian)",
-          provider: "indic-parler",
-          accent: "Indian",
-          gender: "female",
-          age: "young",
-          category: "premade",
-          previewAudioUrl: "",
-        },
-        {
-          voiceId: "Amol-hi",
-          voiceName: "Amol (Hindi Male - Energetic Indian)",
-          provider: "indic-parler",
-          accent: "Indian",
-          gender: "male",
-          age: "young",
-          category: "premade",
-          previewAudioUrl: "",
-        },
-        {
-          voiceId: "Girish-hi",
-          voiceName: "Girish (Hindi Male - Corporate Indian)",
-          provider: "indic-parler",
-          accent: "Indian",
-          gender: "male",
-          age: "middle_aged",
-          category: "premade",
-          previewAudioUrl: "",
-        },
-        {
-          voiceId: "Prashant-hi",
-          voiceName: "Prashant (Hindi Male - Calm & Reassuring)",
-          provider: "indic-parler",
-          accent: "Indian",
-          gender: "male",
-          age: "middle_aged",
-          category: "premade",
-          previewAudioUrl: "",
+          preview_audio_url: "https://huggingface.co/hexgrad/Kokoro-82M/resolve/main/samples/bm_george.wav",
         },
       ];
     }),
 
-    listSaved: protectedProcedure.query(async ({ ctx }) => {
-      return getVoicesByUser(ctx.user.id);
+    listRetell: publicProcedure.query(async () => {
+      const { listPremade } = appRouter.voices as any;
+      return [
+        {
+          voice_id: "Aanchal-hi",
+          voice_name: "Aanchal (Hindi Female - Clear & Conversational)",
+          provider: "indic-f5",
+          accent: "Indian",
+          gender: "female",
+          age: "young",
+          category: "premade",
+          preview_audio_url: "",
+        },
+        {
+          voice_id: "Rohit-hi",
+          voice_name: "Rohit (Hindi Male - Clear & Balanced)",
+          provider: "indic-f5",
+          accent: "Indian",
+          gender: "male",
+          age: "young",
+          category: "premade",
+          preview_audio_url: "",
+        },
+        {
+          voice_id: "ananya",
+          voice_name: "Ananya (Indic Multilingual Female)",
+          provider: "indic-f5",
+          accent: "Indian",
+          gender: "female",
+          age: "young",
+          category: "premade",
+          preview_audio_url: "",
+        },
+        {
+          voice_id: "default_indic",
+          voice_name: "Aarav (Indic Multilingual Male)",
+          provider: "indic-f5",
+          accent: "Indian",
+          gender: "male",
+          age: "young",
+          category: "premade",
+          preview_audio_url: "",
+        },
+        {
+          voice_id: "af_heart",
+          voice_name: "Heart (US Female - Warm & Expressive)",
+          provider: "kokoro",
+          accent: "American",
+          gender: "female",
+          age: "young",
+          category: "premade",
+          preview_audio_url: "https://huggingface.co/hexgrad/Kokoro-82M/resolve/main/samples/af_heart.wav",
+        },
+        {
+          voice_id: "af_bella",
+          voice_name: "Bella (US Female - Cheerful & Bright)",
+          provider: "kokoro",
+          accent: "American",
+          gender: "female",
+          age: "young",
+          category: "premade",
+          preview_audio_url: "https://huggingface.co/hexgrad/Kokoro-82M/resolve/main/samples/af_bella.wav",
+        },
+        {
+          voice_id: "am_adam",
+          voice_name: "Adam (US Male - Deep & Confident)",
+          provider: "kokoro",
+          accent: "American",
+          gender: "male",
+          age: "middle_aged",
+          category: "premade",
+          preview_audio_url: "https://huggingface.co/hexgrad/Kokoro-82M/resolve/main/samples/am_adam.wav",
+        },
+        {
+          voice_id: "bf_emma",
+          voice_name: "Emma (UK Female - Crisp & Articulate)",
+          provider: "kokoro",
+          accent: "British",
+          gender: "female",
+          age: "young",
+          category: "premade",
+          preview_audio_url: "https://huggingface.co/hexgrad/Kokoro-82M/resolve/main/samples/bf_emma.wav",
+        },
+      ];
+    }),
+
+    listSaved: publicProcedure.query(async ({ ctx }) => {
+      const dbVoices = ctx.user ? await getVoicesByUser(ctx.user.id) : [];
+      
+      const refsDir = path.resolve(process.cwd(), "fish-speech-int4-patch", "references");
+      const localCloned: Array<{ id: number; voiceId: string; retellVoiceId: string; name: string; category: string; provider: string; previewUrl: string | null }> = [];
+      
+      if (fs.existsSync(refsDir)) {
+        const dirs = fs.readdirSync(refsDir);
+        let idCounter = 9001;
+        for (const dir of dirs) {
+          if (dir.startsWith("local_voice_") && !dir.includes("test_warmup")) {
+            const isAlreadyInDb = dbVoices.some((v) => v.retellVoiceId === dir);
+            if (!isAlreadyInDb) {
+              const labPath = path.join(refsDir, dir, "sample.lab");
+              let voiceLabel = "Custom Cloned Voice";
+              if (fs.existsSync(labPath)) {
+                const text = fs.readFileSync(labPath, "utf-8").trim();
+                if (text.length > 0) {
+                  voiceLabel = text.length > 35 ? `${text.slice(0, 35)}...` : text;
+                }
+              }
+              localCloned.push({
+                id: idCounter++,
+                voiceId: dir,
+                retellVoiceId: dir,
+                name: voiceLabel,
+                category: "cloned",
+                provider: "local",
+                previewUrl: `/uploads/voice-samples/${dir}.wav`,
+              });
+            }
+          }
+        }
+      }
+
+      const mappedDb = dbVoices.map((v) => ({
+        ...v,
+        voiceId: v.retellVoiceId,
+      }));
+
+      return [...mappedDb, ...localCloned];
     }),
 
     save: protectedProcedure
       .input(
         z.object({
-          retellVoiceId: z.string(),
+          voiceId: z.string().optional(),
+          retellVoiceId: z.string().optional(),
           name: z.string(),
           description: z.string().optional(),
           provider: z.string().optional(),
@@ -320,57 +552,119 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ ctx, input }) => {
+        const effectiveVoiceId = input.voiceId || input.retellVoiceId || `voice_${Date.now()}`;
         const existing = await getVoicesByUser(ctx.user.id);
-        const alreadySaved = existing.some((v) => v.retellVoiceId === input.retellVoiceId);
-        if (alreadySaved) return { success: true, alreadyExists: true };
-        await insertVoice({ ...input, userId: ctx.user.id });
+        const alreadySaved = existing.some((v) => v.retellVoiceId === effectiveVoiceId);
+        if (alreadySaved) {
+          return { success: true, alreadyExists: true };
+        }
+        await insertVoice({
+          userId: ctx.user.id,
+          retellVoiceId: effectiveVoiceId,
+          name: input.name,
+          description: input.description,
+          provider: input.provider,
+          gender: input.gender,
+          accent: input.accent,
+          age: input.age,
+          category: input.category,
+          previewUrl: input.previewUrl,
+        });
         return { success: true, alreadyExists: false };
       }),
 
     remove: protectedProcedure
-      .input(z.object({ id: z.number() }))
+      .input(z.object({ id: z.number().optional(), voiceId: z.string().optional(), retellVoiceId: z.string().optional() }))
       .mutation(async ({ ctx, input }) => {
-        await deleteVoice(ctx.user.id, input.id);
+        const effectiveVoiceId = input.voiceId || input.retellVoiceId || (input.id ? `local_voice_${input.id}` : null);
+        
+        if (input.id && input.id < 9000) {
+          await deleteVoice(ctx.user.id, input.id);
+        }
+        
+        if (effectiveVoiceId && effectiveVoiceId.startsWith("local_voice_")) {
+          const refsDir = path.resolve(process.cwd(), "fish-speech-int4-patch", "references");
+          const targetDir = path.join(refsDir, effectiveVoiceId);
+          if (fs.existsSync(targetDir)) {
+            try {
+              fs.rmSync(targetDir, { recursive: true, force: true });
+              console.log(`[Voices] Deleted filesystem directory: ${targetDir}`);
+            } catch (err) {
+              console.error(`[Voices] Failed to remove ${targetDir}:`, err);
+            }
+          }
+        }
         return { success: true };
       }),
+
+    deleteAllCloned: protectedProcedure.mutation(async ({ ctx }) => {
+      const dbVoices = await getVoicesByUser(ctx.user.id);
+      for (const v of dbVoices) {
+        if (v.category === "cloned") {
+          await deleteVoice(ctx.user.id, v.id);
+        }
+      }
+
+      const refsDir = path.resolve(process.cwd(), "fish-speech-int4-patch", "references");
+      if (fs.existsSync(refsDir)) {
+        const dirs = fs.readdirSync(refsDir);
+        for (const dir of dirs) {
+          if (dir.startsWith("local_voice_") && !dir.includes("test_warmup")) {
+            const fullPath = path.join(refsDir, dir);
+            try {
+              fs.rmSync(fullPath, { recursive: true, force: true });
+              console.log(`[Voices] Purged cloned directory: ${fullPath}`);
+            } catch (err) {
+              console.error(`[Voices] Failed to delete ${fullPath}:`, err);
+            }
+          }
+        }
+      }
+      return { success: true };
+    }),
 
     clone: protectedProcedure
       .input(
         z.object({
+          name: z.string(),
           audioUrl: z.string(),
-          storageKey: z.string().optional(),
-          voiceName: z.string(),
-          provider: z.enum(["elevenlabs", "cartesia", "minimax", "fish_audio", "platform", "local"]).default("platform"),
         })
       )
       .mutation(async ({ ctx, input }) => {
-        const voiceId = `local_voice_${Date.now()}`;
-        
-        // Extract filename and resolve absolute path of uploaded audio file
-        const fileName = input.audioUrl.split("/").pop();
-        if (!fileName) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid audio URL." });
+        const userRole = ctx.user.role;
+        const apiAccess = (ctx.user as any).apiAccess;
+        if (userRole !== "admin" && apiAccess !== "approved") {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Zero-shot voice cloning requires approved access. Please redeem an invite code or request access.",
+          });
         }
-        const absoluteAudioPath = path.resolve(process.cwd(), "uploads", "voice-samples", fileName);
-        
-        // Paths for the helper python environment and script
-        const pythonBinary = path.resolve(process.cwd(), "server-python", "node1-edge", ".venv", "bin", "python");
-        const scriptPath = path.resolve(process.cwd(), "scripts", "clone_voice.py");
-        
+
+        const pythonScript = path.resolve(process.cwd(), "scripts/clone_voice.py");
+        let audioRelative = input.audioUrl.startsWith("/") ? input.audioUrl.slice(1) : input.audioUrl;
+        const audioPath = path.resolve(process.cwd(), audioRelative);
+
+        if (!fs.existsSync(audioPath)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Audio file not found at ${audioPath}`,
+          });
+        }
+
+        const voiceId = `local_voice_${Date.now()}`;
+        let effectiveName = input.name;
+
         try {
-          console.log(`[TRPC Clone] Running clone_voice.py for voice: ${voiceId}`);
-          const { stdout, stderr } = await execFileAsync(pythonBinary, [
-            scriptPath,
-            "--audio-path", absoluteAudioPath,
-            "--voice-id", voiceId,
-            "--voice-name", input.voiceName
+          const { stdout, stderr } = await execFileAsync("python3", [
+            pythonScript,
+            "--audio", audioPath,
+            "--voice_id", voiceId,
+            "--name", input.name
           ]);
-          console.log(`[TRPC Clone stdout] ${stdout}`);
-          if (stderr) {
-            console.warn(`[TRPC Clone stderr] ${stderr}`);
-          }
+          console.log(`[Voice Cloning Output]:`, stdout);
+          if (stderr) console.warn(`[Voice Cloning Warnings]:`, stderr);
         } catch (error) {
-          console.error(`[TRPC Clone Error] Failed to run clone_voice.py:`, error);
+          console.error(`[Voice Cloning Error]:`, error);
           throw new TRPCError({
             code: "INTERNAL_SERVER_ERROR",
             message: `Voice cloning backend error: ${error instanceof Error ? error.message : String(error)}`
@@ -380,22 +674,138 @@ export const appRouter = router({
         await insertVoice({
           userId: ctx.user.id,
           retellVoiceId: voiceId,
-          name: input.voiceName,
+          name: effectiveName,
           provider: "local",
           category: "cloned",
-          previewUrl: input.audioUrl, // Using the audio URL as preview
+          previewUrl: input.audioUrl,
         });
 
         return {
           voice_id: voiceId,
-          voice_name: input.voiceName,
+          voice_name: effectiveName,
           provider: "local",
         };
       }),
   }),
 
-  // ─── Calls ─────────────────────────────────────────────────────────────────
+  // ─── Telephony Phone Calls ───────────────────────────────────────────────────
+  phoneCalls: router({
+    dispatch: protectedProcedure
+      .input(
+        z.object({
+          toNumber: z.string(),
+          voiceId: z.string().default("Aanchal-hi"),
+          systemPrompt: z.string().default(""),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const userRole = ctx.user.role;
+        const apiAccess = (ctx.user as any).apiAccess;
+        if (userRole !== "admin" && apiAccess !== "approved") {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Outbound phone calls require approved platform access. Please enter an invite code or request access from the administrator.",
+          });
+        }
+
+        const postData = JSON.stringify({
+          to: input.toNumber,
+          voice_id: input.voiceId,
+          system_prompt: input.systemPrompt,
+        });
+
+        return new Promise((resolve, reject) => {
+          const options: http.RequestOptions = {
+            hostname: "127.0.0.1",
+            port: 5000,
+            path: "/api/v1/calls/dispatch",
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Content-Length": Buffer.byteLength(postData),
+            },
+          };
+
+          const req = http.request(options, (res) => {
+            let body = "";
+            res.on("data", (chunk) => (body += chunk));
+            res.on("end", async () => {
+              try {
+                const data = JSON.parse(body);
+                if (data.callId) {
+                  await insertCall({
+                    userId: ctx.user.id,
+                    toNumber: input.toNumber,
+                    callType: "phone",
+                    status: "in-progress",
+                    voice_id: input.voiceId,
+                    voice_name: input.voiceId,
+                    systemPrompt: input.systemPrompt,
+                  });
+                }
+                resolve(data);
+              } catch (e: any) {
+                reject(new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: e.message || body }));
+              }
+            });
+          });
+
+          req.on("error", (err) => {
+            reject(new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `Telephony Bridge Error: ${err.message}` }));
+          });
+
+          req.write(postData);
+          req.end();
+        });
+      }),
+
+    terminate: protectedProcedure
+      .input(z.object({ callId: z.string() }))
+      .mutation(async ({ input }) => {
+        return new Promise((resolve, reject) => {
+          const options: http.RequestOptions = {
+            hostname: "127.0.0.1",
+            port: 5000,
+            path: `/api/v1/calls/${input.callId}/terminate`,
+            method: "POST",
+          };
+
+          const req = http.request(options, (res) => {
+            let body = "";
+            res.on("data", (chunk) => (body += chunk));
+            res.on("end", () => {
+              try {
+                resolve(JSON.parse(body));
+              } catch {
+                resolve({ success: true, status: "TERMINATED" });
+              }
+            });
+          });
+
+          req.on("error", (err) => {
+            reject(new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: err.message }));
+          });
+          req.end();
+        });
+      }),
+  }),
+
+  // ─── Web Calls & History ────────────────────────────────────────────────────
   calls: router({
+    delete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        const { deleteCall } = await import("./db.js");
+        await deleteCall(input.id);
+        return { success: true };
+      }),
+
+    clearHistory: protectedProcedure.mutation(async ({ ctx }) => {
+      const { deleteAllCalls } = await import("./db.js");
+      await deleteAllCalls(ctx.user?.id);
+      return { success: true };
+    }),
+
     initiate: protectedProcedure
       .input(
         z.object({
@@ -404,57 +814,44 @@ export const appRouter = router({
           meetingLink: z.string().optional(),
           meetingDialIn: z.string().optional(),
           meetingPin: z.string().optional(),
-          voiceId: z.string(),
-          voiceName: z.string(),
+          voice_id: z.string(),
+          voice_name: z.string(),
           tone: z.enum(["professional", "casual", "friendly", "formal", "empathetic"]).default("professional"),
           systemPrompt: z.string().optional(),
           personality: z.string().optional(),
-          beginMessage: z.string().optional(),
-          voiceTemperature: z.number().min(0).max(2).default(1.0),
           voiceSpeed: z.number().min(0.5).max(2.0).default(1.0),
-          responsiveness: z.number().min(0).max(1).default(0.9),
-          interruptionSensitivity: z.number().min(0).max(1).default(0.9),
-          ambientSound: z.string().optional(),
-          language: z.string().default("en-US"),
-          llmModel: z.string().default("local-gemma-4"),
-          llmTemperature: z.number().min(0).max(2).default(0),
+          voiceTemperature: z.number().min(0).max(2).default(1.0),
+          language: z.string().default("hi-IN"),
           maxHistory: z.number().min(1).max(50).default(20),
         })
       )
       .mutation(async ({ ctx, input }) => {
-        const fullPrompt = `${input.systemPrompt || "You are a natural, conversational voice assistant. Answer in 1-2 short sentences. Be direct — no filler phrases like 'I\\'m happy to help' or 'Feel free to ask'. Speak as a human would in a real conversation. Never use markdown, asterisks, bullet points, or action descriptions."}\nPersonality: ${input.personality || ""}`.trim();
+        const fullPrompt = `${input.systemPrompt || "You are a natural, conversational voice assistant. Answer in 1-2 short sentences. Be direct — speak as a human would in a real conversation. Never use markdown, asterisks, bullet points, or action descriptions."}
+Personality: ${input.personality || ""}`.trim();
 
-        // Create call record in DB
         const callRecord = await insertCall({
           userId: ctx.user.id,
-          retellAgentId: "local_agent",
-          retellLlmId: "local_llm",
           toNumber: input.toNumber,
           callType: input.callType,
           status: "in-progress",
-          voiceId: input.voiceId,
-          voiceName: input.voiceName,
+          voice_id: input.voiceId,
+          voice_name: input.voiceName,
           tone: input.tone,
           systemPrompt: fullPrompt,
           personality: input.personality,
           responseSpeed: input.voiceSpeed,
           voiceTemperature: input.voiceTemperature,
           voiceSpeed: input.voiceSpeed,
-          ambientSound: input.ambientSound,
-          meetingDialIn: input.meetingDialIn,
-          meetingPin: input.meetingPin,
-          meetingLink: input.meetingLink,
         });
 
         const callId = String((callRecord as { insertId: number }).insertId);
 
-        // Generate LiveKit token
         const token = await createLiveKitToken(
           callId,
           `user_${ctx.user.id}`,
           JSON.stringify({
-            voiceId: input.voiceId,
-            voiceName: input.voiceName,
+            voice_id: input.voiceId,
+            voice_name: input.voiceName,
             systemPrompt: fullPrompt,
             tone: input.tone,
             language: input.language,
@@ -467,23 +864,21 @@ export const appRouter = router({
         return {
           callType: "web",
           callId: parseInt(callId),
-          retellCallId: `local_call_${callId}`,
           accessToken: token,
-          agentId: "local_agent",
         };
       }),
 
     stop: protectedProcedure
-      .input(z.object({ callId: z.number(), retellCallId: z.string().optional() }))
+      .input(z.object({ callId: z.number() }))
       .mutation(async ({ ctx, input }) => {
         await updateCall(input.callId, { status: "completed", endedAt: new Date() });
         return { success: true };
       }),
 
     getStatus: protectedProcedure
-      .input(z.object({ retellCallId: z.string().optional() }))
+      .input(z.object({ callId: z.number().optional() }))
       .query(async () => {
-        return { call_status: "ongoing" }; // Mock for local calls
+        return { call_status: "ongoing" };
       }),
 
     list: protectedProcedure
@@ -502,58 +897,75 @@ export const appRouter = router({
         const transcripts = await getTranscriptsByCall(input.callId);
         return { call, transcripts };
       }),
-
-    sync: protectedProcedure
-      .input(z.object({ callId: z.number() }))
-      .mutation(async ({ ctx, input }) => {
-        // Local calls don't need external sync
-        return { success: true, status: "in-progress" };
-      }),
   }),
 
-  // ─── LLM Utilities ─────────────────────────────────────────────────────────
+  // ─── LLM Utilities (Powered by Local vLLM Gemma 4 AWQ on Port 8100) ──────────
   llm: router({
-    suggestPrompt: protectedProcedure
-      .input(z.object({ useCase: z.string(), tone: z.string().default("professional"), personality: z.string().optional() }))
+    suggestPrompt: publicProcedure
+      .input(
+        z.object({
+          useCase: z.string(),
+          language: z.string().default("Hindi"),
+          tone: z.string().default("professional"),
+          personality: z.string().optional(),
+        })
+      )
       .mutation(async ({ input }) => {
         const response = await invokeLLM({
           messages: [
-            { role: "system", content: "You are an expert at crafting system prompts." },
-            { role: "user", content: `Generate a system prompt for: ${input.useCase}` },
+            {
+              role: "system",
+              content: `You are an expert voice AI prompt engineer. Create a concise, conversational system prompt in ${input.language} for a voice assistant specialized in ${input.useCase} with a ${input.tone} tone. Keep the output under 3 sentences. Direct instructions only, no markdown.`,
+            },
+            { role: "user", content: `Generate system prompt for: ${input.useCase}` },
           ],
         });
         const content = response.choices[0]?.message?.content;
-        return { prompt: typeof content === "string" ? content : "" };
+        return { prompt: typeof content === "string" ? content.trim() : "" };
       }),
 
-    generateScript: protectedProcedure
-      .input(z.object({ scenario: z.string(), turns: z.number().default(4), tone: z.string().default("professional") }))
+    generateScript: publicProcedure
+      .input(
+        z.object({
+          scenario: z.string(),
+          language: z.string().default("Hindi"),
+          turns: z.number().default(4),
+          tone: z.string().default("professional"),
+        })
+      )
       .mutation(async ({ input }) => {
         const response = await invokeLLM({
           messages: [
-            { role: "system", content: "You are an expert at writing realistic voice conversation scripts." },
-            { role: "user", content: `Write a ${input.turns}-turn script for: ${input.scenario}` },
+            {
+              role: "system",
+              content: `You are an expert scriptwriter for phone and voice AI conversations. Write a realistic ${input.turns}-turn voice dialogue in ${input.language} for scenario "${input.scenario}" with a ${input.tone} tone.\nFormat strictly as:\nAgent: <line>\nCustomer: <line>\nAgent: <line>\nCustomer: <line>`,
+            },
+            { role: "user", content: `Write script for: ${input.scenario}` },
           ],
+          max_tokens: 600,
         });
         const content = response.choices[0]?.message?.content;
-        return { script: typeof content === "string" ? content : "" };
+        return { script: typeof content === "string" ? content.trim() : "" };
       }),
 
-    generateInsights: protectedProcedure
+    generateInsights: publicProcedure
       .input(z.object({ callId: z.number(), transcript: z.string(), summary: z.string().optional() }))
       .mutation(async ({ ctx, input }) => {
         const response = await invokeLLM({
           messages: [
-            { role: "system", content: "Analyze this voice call transcript." },
+            { role: "system", content: "Analyze this voice call transcript and provide 2 bullet points on sentiment and action items." },
             { role: "user", content: `Transcript: ${input.transcript}` },
           ],
         });
         const content = response.choices[0]?.message?.content;
         const insights = typeof content === "string" ? content : "";
-        await updateCall(input.callId, { insights });
+        if (input.callId) {
+          await updateCall(input.callId, { insights });
+        }
         return { insights };
       }),
   }),
 });
 
 export type AppRouter = typeof appRouter;
+

@@ -18,43 +18,43 @@ import { cn } from "@/lib/utils";
 const FEATURES = [
   {
     icon: Mic,
-    title: "Voice Cloning",
-    desc: "Clone any voice with Retell AI — upload a sample or record live to create a perfect replica.",
+    title: "Indic Voice Cloning",
+    desc: "Zero-shot voice cloning with AI4Bharat IndicF5 & Kokoro — upload 5s of audio to clone any voice.",
     color: "text-violet-400",
     bg: "bg-violet-400/10",
   },
   {
     icon: Phone,
-    title: "Live Phone Calls",
-    desc: "Initiate real phone calls and meeting links with your cloned AI voice via Retell AI.",
+    title: "Direct Phone Calls",
+    desc: "Initiate live phone calls via Twilio PSTN gateway directly to mobile phones worldwide.",
     color: "text-blue-400",
     bg: "bg-blue-400/10",
   },
   {
     icon: Zap,
-    title: "Real-Time Conversation",
-    desc: "Dynamic two-way AI conversations with live transcript, waveform visualization, and speaker ID.",
+    title: "Ultra Low Latency",
+    desc: "Real-time bidirectional speech streaming with Silero VAD, Whisper STT, and Gemma LLM.",
     color: "text-amber-400",
     bg: "bg-amber-400/10",
   },
   {
     icon: Sparkles,
     title: "LLM Intelligence",
-    desc: "AI-generated system prompts, conversation scripts, and post-call summaries with insights.",
+    desc: "Self-hosted Gemma 4 26B model powering natural multi-turn conversations and post-call telemetry.",
     color: "text-emerald-400",
     bg: "bg-emerald-400/10",
   },
   {
     icon: Shield,
-    title: "Your Credentials",
-    desc: "Your Retell API key is stored securely and never shared. Full control at all times.",
+    title: "Self-Hosted & Private",
+    desc: "Full local GPU inference stack on dedicated hardware. Zero dependency on third-party cloud wrappers.",
     color: "text-rose-400",
     bg: "bg-rose-400/10",
   },
   {
     icon: Globe,
-    title: "Multi-Platform",
-    desc: "Call phone numbers, Google Meet, Zoom, Teams — all from one unified interface.",
+    title: "11+ Indian Languages",
+    desc: "Native support for Hindi, Hinglish, Tamil, Telugu, Marathi, Bengali, and global languages.",
     color: "text-cyan-400",
     bg: "bg-cyan-400/10",
   },
@@ -87,20 +87,19 @@ export default function Home() {
         </div>
 
         <Badge variant="secondary" className="mb-4 px-3 py-1 text-xs font-medium bg-primary/10 text-primary border-primary/20">
-          AI-Powered Voice Platform
+          🇮🇳 Samvad Voice AI Platform
         </Badge>
 
         <h1 className="text-4xl md:text-6xl font-bold tracking-tight text-foreground mb-6 max-w-3xl leading-tight">
           Clone Voices.{" "}
           <span className="text-primary">Call Anyone.</span>
           <br />
-          Powered by AI.
+          Self-Hosted Speech AI.
         </h1>
 
         <p className="text-lg text-muted-foreground max-w-xl mb-10 leading-relaxed">
-  Clone voices with Retell AI, initiate live phone calls to any number
-          or meeting link, and conduct dynamic two-way AI conversations —
-          all from one elegant platform.       </p>
+          Clone voices with IndicF5, initiate live PSTN phone calls to any mobile number, and conduct dynamic two-way AI conversations.
+        </p>
 
         <div className="flex flex-wrap gap-3 justify-center">
           {!loading && (
@@ -109,10 +108,10 @@ export default function Home() {
                 <Button
                   size="lg"
                   onClick={() => navigate("/studio")}
-                  className="gap-2 px-6 font-medium"
+                  className="gap-2 px-6 font-medium shadow-md"
                 >
                   <Phone className="w-4 h-4" />
-                  Start a Call
+                  Open Call Studio
                   <ArrowRight className="w-4 h-4" />
                 </Button>
                 <Button
@@ -129,7 +128,7 @@ export default function Home() {
               <Button
                 size="lg"
                 onClick={() => navigate("/studio")}
-                className="gap-2 px-6 font-medium"
+                className="gap-2 px-6 font-medium shadow-md"
               >
                 <Sparkles className="w-4 h-4" />
                 Get Started
@@ -142,10 +141,10 @@ export default function Home() {
         {/* Stats */}
         <div className="flex flex-wrap gap-8 justify-center mt-16 text-center">
           {[
-            { value: "11+", label: "Voice Models" },
-            { value: "Real-time", label: "Transcription" },
-            { value: "2-way", label: "AI Conversation" },
-            { value: "LLM", label: "Post-call Insights" },
+            { value: "11+", label: "Indian Languages" },
+            { value: "<600ms", label: "Speech Latency" },
+            { value: "50+", label: "Concurrent LLM Streams" },
+            { value: "Twilio", label: "Direct PSTN Calling" },
           ].map(({ value, label }) => (
             <div key={label} className="flex flex-col gap-1">
               <span className="text-2xl font-bold text-primary">{value}</span>
@@ -158,8 +157,8 @@ export default function Home() {
       {/* Features */}
       <section className="px-6 pb-20 max-w-5xl mx-auto">
         <div className="text-center mb-12">
-          <h2 className="text-2xl font-bold text-foreground mb-3">Everything You Need</h2>
-          <p className="text-muted-foreground">A complete voice AI platform built for live demonstrations</p>
+          <h2 className="text-2xl font-bold text-foreground mb-3">Enterprise Voice AI Stack</h2>
+          <p className="text-muted-foreground">High-performance conversational speech architecture</p>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {FEATURES.map(({ icon: Icon, title, desc, color, bg }) => (
@@ -176,23 +175,7 @@ export default function Home() {
           ))}
         </div>
       </section>
-
-      {/* CTA */}
-      {!isAuthenticated && !loading && (
-        <section className="px-6 pb-20 max-w-2xl mx-auto text-center">
-          <div className="p-8 rounded-2xl border border-primary/20 bg-primary/5">
-            <AudioWaveform className="w-8 h-8 text-primary mx-auto mb-4" />
-            <h2 className="text-xl font-bold text-foreground mb-2">Ready to start?</h2>
-            <p className="text-sm text-muted-foreground mb-6">
-              Sign in to access the full platform. Bring your own ElevenLabs and Twilio credentials.
-            </p>
-            <Button onClick={() => navigate("/studio")} className="gap-2">
-              <Sparkles className="w-4 h-4" />
-              Sign In to Continue
-            </Button>
-          </div>
-        </section>
-      )}
     </div>
   );
 }
+

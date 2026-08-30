@@ -15,27 +15,25 @@ function safeCompare(a: string, b: string): boolean {
 }
 
 export function registerLocalAuthRoutes(app: Express) {
-  // POST /api/auth/local-login  { email, password }
+  // POST /api/auth/local-login (Admin credentials)
   app.post("/api/auth/local-login", async (req: Request, res: Response) => {
     const { email, password } = req.body ?? {};
 
     if (!email || !password) {
-      res.status(400).json({ error: "email and password are required" });
+      res.status(400).json({ error: "Email and password are required" });
       return;
     }
 
-    // Pull the admin password from env (LOCAL_ADMIN_PASSWORD), default "admin123"
     const adminEmail = process.env.LOCAL_ADMIN_EMAIL ?? "admin@voiceforge.local";
     const adminPassword = process.env.LOCAL_ADMIN_PASSWORD ?? "admin123";
 
     if (!safeCompare(email, adminEmail) || !safeCompare(password, adminPassword)) {
-      res.status(401).json({ error: "Invalid credentials" });
+      res.status(401).json({ error: "Invalid admin credentials" });
       return;
     }
 
     const openId = "local-admin-openid";
 
-    // Ensure user exists in DB with admin role
     await db.upsertUser({
       openId,
       name: "Admin",
@@ -52,7 +50,57 @@ export function registerLocalAuthRoutes(app: Express) {
 
     const cookieOptions = getSessionCookieOptions(req);
     res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
-    res.json({ ok: true });
+    res.json({ ok: true, role: "admin" });
+  });
+
+  // POST /api/auth/user-login (Third-party users / Guests with email & optional invite code)
+  app.post("/api/auth/user-login", async (req: Request, res: Response) => {
+    const { email, name, inviteCode } = req.body ?? {};
+
+    const cleanEmail = (email || "").trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes("@")) {
+      res.status(400).json({ error: "A valid email address is required" });
+      return;
+    }
+
+    const displayName = (name || "").trim() || cleanEmail.split("@")[0];
+    const openId = `user_${cleanEmail.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+
+    // Check if user already exists
+    let existingUser = await db.getUserByOpenId(openId);
+    let apiAccess = existingUser?.apiAccess || "none";
+    let role = existingUser?.role || "user";
+
+    // If invite code provided, validate and approve
+    if (inviteCode && inviteCode.trim()) {
+      const codeStr = inviteCode.trim().toUpperCase();
+      const codes = await db.listInviteCodes();
+      const matched = codes.find((c) => c.code === codeStr);
+      if (matched && matched.usesCount < matched.maxUses) {
+        matched.usesCount += 1;
+        apiAccess = "approved";
+        if (matched.role === "admin") role = "admin";
+      }
+    }
+
+    await db.upsertUser({
+      openId,
+      name: displayName,
+      email: cleanEmail,
+      loginMethod: "email_login",
+      role: role as any,
+      apiAccess: apiAccess as any,
+      lastSignedIn: new Date(),
+    } as any);
+
+    const sessionToken = await sdk.createSessionToken(openId, {
+      name: displayName,
+      expiresInMs: ONE_YEAR_MS,
+    });
+
+    const cookieOptions = getSessionCookieOptions(req);
+    res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+    res.json({ ok: true, role, apiAccess, name: displayName });
   });
 
   // POST /api/auth/logout
@@ -61,3 +109,4 @@ export function registerLocalAuthRoutes(app: Express) {
     res.json({ ok: true });
   });
 }
+

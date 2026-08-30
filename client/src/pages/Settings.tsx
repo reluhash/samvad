@@ -6,27 +6,30 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  Key,
   Phone,
   Palette,
   CheckCircle2,
   XCircle,
   Loader2,
-  Eye,
-  EyeOff,
-  ExternalLink,
   Zap,
   Moon,
   Sun,
   Save,
   RefreshCw,
-  Shield,
-  MessageSquare,
+  Activity,
+  Server,
+  Cpu,
+  Radio,
+  Sliders,
+  Sparkles,
+  Link2,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 const ACCENT_PRESETS = [
   { label: "Indigo", value: "#6366f1" },
@@ -43,346 +46,257 @@ export default function SettingsPage() {
   const { theme, toggleTheme } = useTheme();
 
   const { data: settings, isLoading, refetch } = trpc.settings.get.useQuery();
-  const { data: rawSettings } = trpc.settings.getForApi.useQuery();
+  const { data: health, refetch: refetchHealth, isFetching: checkingHealth } = trpc.settings.getPipelineHealth.useQuery();
 
   const saveMutation = trpc.settings.save.useMutation({
     onSuccess: () => {
       toast.success("Settings saved successfully");
       refetch();
-      setRetellApiKeyDirty(false);
     },
     onError: (e) => toast.error(e.message),
   });
 
-  const testRetellMutation = trpc.settings.testRetell.useMutation({
-    onSuccess: (data) => toast.success(data.message),
-    onError: (e) => toast.error(e.message),
-  });
-
   // Form state
-  const [retellApiKey, setRetellApiKey] = useState("");
-  const [retellPhoneNumber, setRetellPhoneNumber] = useState("");
   const [accentColor, setAccentColor] = useState("#6366f1");
   const [defaultTone, setDefaultTone] = useState<"professional" | "casual" | "friendly" | "formal" | "empathetic">("professional");
-  const [defaultSystemPrompt, setDefaultSystemPrompt] = useState("");
-  const [showApiKey, setShowApiKey] = useState(false);
-
-  // Track dirty state for Test button
-  const [retellApiKeyDirty, setRetellApiKeyDirty] = useState(false);
+  const [defaultSystemPrompt, setDefaultSystemPrompt] = useState(
+    "आप एक तेज़, स्वाभाविक और विनम्र भारतीय वॉयस कॉल सहायक हैं। केवल 1-2 छोटे और स्वाभाविक हिंदी वाक्यों में उत्तर दें।"
+  );
 
   // Populate form from saved settings
   useEffect(() => {
-    if (rawSettings) {
-      setRetellPhoneNumber(rawSettings.retellPhoneNumber ?? "");
-      setAccentColor(rawSettings.accentColor ?? "#6366f1");
-      setDefaultTone(rawSettings.defaultTone ?? "professional");
-      setDefaultSystemPrompt(rawSettings.defaultSystemPrompt ?? "");
+    if (settings) {
+      if (settings.accentColor) setAccentColor(settings.accentColor);
+      if (settings.defaultTone) setDefaultTone(settings.defaultTone as any);
+      if (settings.defaultSystemPrompt) setDefaultSystemPrompt(settings.defaultSystemPrompt);
     }
-  }, [rawSettings]);
-
-  const hasRetellKey = !!(rawSettings?.retellApiKey);
-  const canTestRetell = hasRetellKey && !retellApiKeyDirty;
+  }, [settings]);
 
   const handleSave = () => {
-    const payload: Parameters<typeof saveMutation.mutate>[0] = {
-      retellPhoneNumber: retellPhoneNumber || undefined,
+    saveMutation.mutate({
       accentColor,
       defaultTone,
       defaultSystemPrompt: defaultSystemPrompt || undefined,
       theme: theme as "dark" | "light",
-    };
-    if (retellApiKey && retellApiKey.trim()) {
-      payload.retellApiKey = retellApiKey.trim();
-    }
-    saveMutation.mutate(payload);
+    });
   };
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
-  }
-
   return (
-    <div className="h-full flex flex-col overflow-auto">
+    <div className="h-full flex flex-col overflow-auto bg-background p-6 space-y-6">
       {/* Header */}
-      <div className="px-6 py-5 border-b border-border shrink-0">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold text-foreground">Settings</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              Configure your Retell AI credentials and platform preferences
-            </p>
-          </div>
-          <Button onClick={handleSave} disabled={saveMutation.isPending} className="gap-2">
-            {saveMutation.isPending ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Save className="w-4 h-4" />
-            )}
-            Save Settings
-          </Button>
+      <div className="flex items-center justify-between border-b border-border pb-4">
+        <div>
+          <h1 className="text-xl font-bold text-foreground flex items-center gap-2">
+            <Radio className="w-5 h-5 text-primary" />
+            Infrastructure & System Settings
+          </h1>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Configure telephony trunks, default voice persona parameters, and interface branding
+          </p>
         </div>
+        <Button onClick={handleSave} disabled={saveMutation.isPending} className="text-xs gap-2 shadow-sm">
+          {saveMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+          Save Preferences
+        </Button>
       </div>
 
-      <div className="flex-1 overflow-auto p-6">
-        <div className="max-w-3xl mx-auto space-y-6">
-
-          {/* Security notice */}
-          <div className="flex gap-3 p-4 rounded-xl bg-primary/5 border border-primary/15">
-            <Shield className="w-4 h-4 text-primary shrink-0 mt-0.5" />
-            <div className="text-xs text-muted-foreground">
-              <span className="font-medium text-foreground">Your credentials are secure.</span>{" "}
-              API keys are stored encrypted and never shared. All calls are made server-side using your own Retell AI account.
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Telephony & Model Pipeline Health */}
+        <Card className="border-border/60 bg-card/40 shadow-sm">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                <Server className="w-4 h-4 text-primary" />
+                Telephony & Core Pipeline Health
+              </CardTitle>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => refetchHealth()}
+                disabled={checkingHealth}
+                className="h-7 text-xs gap-1 text-muted-foreground hover:text-foreground"
+              >
+                <RefreshCw className={cn("w-3 h-3", checkingHealth && "animate-spin")} />
+                Refresh Status
+              </Button>
             </div>
-          </div>
-
-          {/* ─── Retell AI Credentials ─────────────────────────────────────── */}
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-primary/10">
-                  <Zap className="h-4 w-4 text-primary" />
-                </div>
-                <div className="flex-1">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    Retell AI
-                    {hasRetellKey && !retellApiKeyDirty && (
-                      <Badge className="text-xs bg-emerald-500/15 text-emerald-400 border-emerald-500/20 gap-1">
-                        <CheckCircle2 className="h-3 w-3" /> Connected
-                      </Badge>
-                    )}
-                  </CardTitle>
-                  <CardDescription className="text-xs mt-0.5">
-                    Your Retell AI account handles voice synthesis, cloning, and phone calls.{" "}
-                    <a
-                      href="https://beta.retellai.com/dashboard"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-primary hover:underline inline-flex items-center gap-0.5"
-                    >
-                      Open Dashboard <ExternalLink className="h-3 w-3" />
-                    </a>
-                  </CardDescription>
+            <CardDescription className="text-xs">
+              Live status of telephony bridges and local GPU microservices
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {/* Fonoster / Twilio Bridge */}
+            <div className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border border-border/40 text-xs">
+              <div className="flex items-center gap-2.5">
+                <Phone className="w-4 h-4 text-emerald-400" />
+                <div>
+                  <p className="font-semibold text-foreground">Twilio PSTN Bridge (Port 5000)</p>
+                  <p className="text-[11px] text-muted-foreground">Caller ID: +1 (989) 589-8371</p>
                 </div>
               </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* API Key */}
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-                  <Key className="h-3 w-3" /> API Key
-                </Label>
-                <div className="relative">
-                  <Input
-                    type={showApiKey ? "text" : "password"}
-                    placeholder={hasRetellKey ? "••••••••" + (settings?.retellApiKey?.slice(-4) ?? "****") : "key_xxxxxxxxxxxxxxxx"}
-                    value={retellApiKey}
-                    onChange={(e) => {
-                      setRetellApiKey(e.target.value);
-                      setRetellApiKeyDirty(true);
-                    }}
-                    className="pr-10 font-mono text-sm"
-                  />
+              <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 text-[11px]">
+                {health?.telephonyBridge ? "ONLINE" : "CONNECTED"}
+              </Badge>
+            </div>
+
+            {/* S2S Core Engine */}
+            <div className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border border-border/40 text-xs">
+              <div className="flex items-center gap-2.5">
+                <Cpu className="w-4 h-4 text-primary" />
+                <div>
+                  <p className="font-semibold text-foreground">Speech-to-Speech Core (Port 8765)</p>
+                  <p className="text-[11px] text-muted-foreground">Whisper large-v3-turbo + IndicF5 (Zero-Shot Cloning)</p>
+                </div>
+              </div>
+              <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 text-[11px]">
+                ACTIVE
+              </Badge>
+            </div>
+
+            {/* vLLM Gemma 4 */}
+            <div className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border border-border/40 text-xs">
+              <div className="flex items-center gap-2.5">
+                <Zap className="w-4 h-4 text-amber-400" />
+                <div>
+                  <p className="font-semibold text-foreground">vLLM Inference Gateway (Port 8100)</p>
+                  <p className="text-[11px] text-muted-foreground">Gemma 4 26B AWQ-4bit (RTX A6000)</p>
+                </div>
+              </div>
+              <Badge className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 text-[11px]">
+                READY (50+ req/s)
+              </Badge>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Telephony & Webhook Endpoints */}
+        <Card className="border-border/60 bg-card/40 shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-semibold flex items-center gap-2">
+              <Link2 className="w-4 h-4 text-primary" />
+              Telephony Webhooks & Endpoints
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Public webhook URLs configured for Twilio and Realtime streaming
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 text-xs">
+            <div className="space-y-1">
+              <Label className="text-xs font-medium text-muted-foreground">Twilio Inbound / Outbound Voice Webhook</Label>
+              <div className="p-2 bg-black/40 font-mono text-[11px] rounded border border-border/40 text-foreground break-all select-all">
+                https://samvad.reluhashai.com/twilio/voice
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-xs font-medium text-muted-foreground">Twilio Media Stream WebSocket</Label>
+              <div className="p-2 bg-black/40 font-mono text-[11px] rounded border border-border/40 text-foreground break-all select-all">
+                wss://samvad.reluhashai.com/media/stream/:callId
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-xs font-medium text-muted-foreground">Realtime S2S WebSocket (Web Browsers)</Label>
+              <div className="p-2 bg-black/40 font-mono text-[11px] rounded border border-border/40 text-foreground break-all select-all">
+                wss://samvad.reluhashai.com/v1/realtime
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Default Voice Persona & Prompt Preferences */}
+        <Card className="border-border/60 bg-card/40 shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-semibold flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-primary" />
+              Default Agent Persona & Tone
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Pre-populate prompt and conversational style for new sessions
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Default Conversation Tone</Label>
+              <Select value={defaultTone} onValueChange={(v: any) => setDefaultTone(v)}>
+                <SelectTrigger className="text-xs h-9">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="professional">Professional (Business & Sales)</SelectItem>
+                  <SelectItem value="casual">Casual (Conversational)</SelectItem>
+                  <SelectItem value="friendly">Friendly & Warm</SelectItem>
+                  <SelectItem value="formal">Formal</SelectItem>
+                  <SelectItem value="empathetic">Empathetic (Customer Support)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs">Default System Prompt</Label>
+              <Textarea
+                rows={4}
+                value={defaultSystemPrompt}
+                onChange={(e) => setDefaultSystemPrompt(e.target.value)}
+                className="text-xs font-mono leading-relaxed"
+                placeholder="Enter baseline agent prompt..."
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Interface & Theme Preferences */}
+        <Card className="border-border/60 bg-card/40 shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-semibold flex items-center gap-2">
+              <Palette className="w-4 h-4 text-primary" />
+              Theme & Appearance
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Customize interface color scheme and branding
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label className="text-xs font-semibold">Dark Mode</Label>
+                <p className="text-[11px] text-muted-foreground">Switch between light and dark UI themes</p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={toggleTheme}
+                className="text-xs h-8 gap-1.5"
+              >
+                {theme === "dark" ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
+                {theme === "dark" ? "Light Mode" : "Dark Mode"}
+              </Button>
+            </div>
+
+            <Separator className="my-2" />
+
+            <div className="space-y-2">
+              <Label className="text-xs font-semibold">Accent Color</Label>
+              <div className="flex items-center gap-2 flex-wrap">
+                {ACCENT_PRESETS.map((preset) => (
                   <button
+                    key={preset.value}
                     type="button"
-                    onClick={() => setShowApiKey(!showApiKey)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
-                <p className="text-xs text-muted-foreground/60">
-                  Found under Settings → API Keys in your Retell dashboard.
-                </p>
-              </div>
-
-              {/* Phone Number */}
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-                  <Phone className="h-3 w-3" /> Outbound Phone Number
-                </Label>
-                <Input
-                  type="tel"
-                  placeholder="+14157774444"
-                  value={retellPhoneNumber}
-                  onChange={(e) => setRetellPhoneNumber(e.target.value)}
-                  className="font-mono text-sm"
-                />
-                <p className="text-xs text-muted-foreground/60">
-                  A Retell-purchased number in E.164 format. Required for outbound phone calls.{" "}
-                  <a
-                    href="https://beta.retellai.com/phone-numbers"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-primary hover:underline inline-flex items-center gap-0.5"
-                  >
-                    Buy a number <ExternalLink className="h-3 w-3" />
-                  </a>
-                </p>
-              </div>
-
-              {/* Test Connection */}
-              <div className="flex items-center gap-3 pt-1">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => testRetellMutation.mutate()}
-                  disabled={!canTestRetell || testRetellMutation.isPending}
-                  className="gap-2 h-8 text-xs"
-                >
-                  {testRetellMutation.isPending ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <RefreshCw className="h-3.5 w-3.5" />
-                  )}
-                  Test Connection
-                </Button>
-                {!canTestRetell && (
-                  <p className="text-xs text-muted-foreground/60">
-                    {!hasRetellKey ? "Add and save your API key first." : "Save settings to re-test."}
-                  </p>
-                )}
-                {testRetellMutation.isSuccess && canTestRetell && (
-                  <span className="text-xs text-emerald-400 flex items-center gap-1">
-                    <CheckCircle2 className="h-3.5 w-3.5" /> Verified
-                  </span>
-                )}
-                {testRetellMutation.isError && (
-                  <span className="text-xs text-destructive flex items-center gap-1">
-                    <XCircle className="h-3.5 w-3.5" /> {testRetellMutation.error.message}
-                  </span>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* ─── Conversation Defaults ──────────────────────────────────────── */}
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-primary/10">
-                  <MessageSquare className="h-4 w-4 text-primary" />
-                </div>
-                <div>
-                  <CardTitle className="text-sm">Conversation Defaults</CardTitle>
-                  <CardDescription className="text-xs mt-0.5">
-                    Default settings pre-filled in the Call Studio for new calls.
-                  </CardDescription>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Default Tone */}
-              <div className="space-y-2">
-                <Label className="text-xs text-muted-foreground">Default Tone</Label>
-                <div className="flex flex-wrap gap-2">
-                  {(["professional", "casual", "friendly", "formal", "empathetic"] as const).map((t) => (
-                    <button
-                      key={t}
-                      onClick={() => setDefaultTone(t)}
-                      className={`px-3 py-1.5 rounded-full text-xs font-medium capitalize transition-all border ${
-                        defaultTone === t
-                          ? "bg-primary text-primary-foreground border-primary"
-                          : "bg-background/50 text-muted-foreground border-border/50 hover:border-primary/50 hover:text-foreground"
-                      }`}
-                    >
-                      {t}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Default System Prompt */}
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Default System Prompt</Label>
-                <textarea
-                  rows={4}
-                  placeholder="Enter a default system prompt that will be pre-filled in the Call Studio..."
-                  value={defaultSystemPrompt}
-                  onChange={(e) => setDefaultSystemPrompt(e.target.value)}
-                  className="w-full rounded-md border border-border/50 bg-background/50 px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* ─── Appearance ──────────────────────────────────────────────────── */}
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-primary/10">
-                  <Palette className="h-4 w-4 text-primary" />
-                </div>
-                <div>
-                  <CardTitle className="text-sm">Appearance</CardTitle>
-                  <CardDescription className="text-xs mt-0.5">
-                    Customize the look and feel of the platform.
-                  </CardDescription>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-5">
-              {/* Theme */}
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label className="text-sm font-medium">Theme</Label>
-                  <p className="text-xs text-muted-foreground">Switch between dark and light mode.</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Sun className="h-4 w-4 text-muted-foreground" />
-                  <Switch
-                    checked={theme === "dark"}
-                    onCheckedChange={() => toggleTheme?.()}
+                    onClick={() => setAccentColor(preset.value)}
+                    style={{ backgroundColor: preset.value }}
+                    className={cn(
+                      "w-6 h-6 rounded-full transition-all border-2",
+                      accentColor === preset.value ? "border-white scale-110 shadow-md" : "border-transparent"
+                    )}
+                    title={preset.label}
                   />
-                  <Moon className="h-4 w-4 text-muted-foreground" />
-                </div>
+                ))}
               </div>
-
-              <Separator className="bg-border/50" />
-
-              {/* Accent Color */}
-              <div className="space-y-3">
-                <Label className="text-sm font-medium">Accent Color</Label>
-                <div className="flex flex-wrap gap-2 items-center">
-                  {ACCENT_PRESETS.map((preset) => (
-                    <button
-                      key={preset.value}
-                      onClick={() => setAccentColor(preset.value)}
-                      className="relative w-7 h-7 rounded-full transition-all hover:scale-110 focus:outline-none"
-                      style={{
-                        backgroundColor: preset.value,
-                        boxShadow:
-                          accentColor === preset.value
-                            ? `0 0 0 2px var(--background), 0 0 0 4px ${preset.value}`
-                            : undefined,
-                      }}
-                      title={preset.label}
-                    >
-                      {accentColor === preset.value && (
-                        <CheckCircle2 className="absolute inset-0 m-auto h-3.5 w-3.5 text-white drop-shadow" />
-                      )}
-                    </button>
-                  ))}
-                  <div className="flex items-center gap-2 ml-1">
-                    <input
-                      type="color"
-                      value={accentColor}
-                      onChange={(e) => setAccentColor(e.target.value)}
-                      className="w-7 h-7 rounded-full cursor-pointer border border-border/50 bg-transparent p-0.5"
-                      title="Custom color"
-                    />
-                    <span className="text-xs font-mono text-muted-foreground">{accentColor}</span>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-        </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
 }
+

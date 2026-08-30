@@ -8,6 +8,7 @@ import sys
 import argparse
 import subprocess
 import shutil
+import re
 import logging
 from pathlib import Path
 
@@ -38,11 +39,11 @@ def main():
     target_wav = voice_dir / "sample.wav"
     target_lab = voice_dir / "sample.lab"
     
-    # 1. Convert audio to 44.1kHz mono WAV using ffmpeg
-    logger.info(f"Converting input audio {input_audio} to wav: {target_wav}")
+    # 1. Convert audio to 24kHz mono WAV (max 5.0 seconds for optimal F5-TTS cadence)
+    logger.info(f"Converting and optimizing input audio {input_audio} to wav: {target_wav}")
     try:
         subprocess.run(
-            ["ffmpeg", "-y", "-i", str(input_audio), "-ar", "44100", "-ac", "1", "-c:a", "pcm_s16le", str(target_wav)],
+            ["ffmpeg", "-y", "-i", str(input_audio), "-t", "5.0", "-ar", "24000", "-ac", "1", "-c:a", "pcm_s16le", str(target_wav)],
             check=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE
@@ -54,7 +55,7 @@ def main():
             shutil.rmtree(voice_dir)
         sys.exit(1)
         
-    # 2. Transcribe audio if text is not provided
+    # 2. Transcribe audio with faster-whisper
     transcript_text = args.text
     if not transcript_text:
         try:
@@ -81,7 +82,23 @@ def main():
             shutil.rmtree(voice_dir)
         sys.exit(1)
         
-    logger.info(f"[✓] Voice profile {args.voice_id} ({args.voice_name}) created successfully!")
+    # 4. Auto-sync to crazycrab GPU cluster under multiple alias keys
+    name_slug = re.sub(r'[^a-zA-Z0-9_]', '_', args.voice_name.lower().strip())
+    aliases = [args.voice_id, name_slug]
+    
+    try:
+        for alias in aliases:
+            logger.info(f"Syncing cloned voice alias '{alias}' to crazycrab...")
+            subprocess.run(["ssh", "-o", "ConnectTimeout=10", "crazycrab", f"mkdir -p /home/bipul/speech-to-speech/custom_voices/{alias} /home/bipul/speech-to-speech/src/speech_to_speech/TTS/presets"], check=False)
+            subprocess.run(["scp", "-o", "ConnectTimeout=10", str(target_wav), f"crazycrab:/home/bipul/speech-to-speech/custom_voices/{alias}/ref.wav"], check=False)
+            subprocess.run(["scp", "-o", "ConnectTimeout=10", str(target_lab), f"crazycrab:/home/bipul/speech-to-speech/custom_voices/{alias}/ref_text.txt"], check=False)
+            subprocess.run(["scp", "-o", "ConnectTimeout=10", str(target_wav), f"crazycrab:/home/bipul/speech-to-speech/src/speech_to_speech/TTS/presets/{alias}.wav"], check=False)
+            subprocess.run(["scp", "-o", "ConnectTimeout=10", str(target_lab), f"crazycrab:/home/bipul/speech-to-speech/src/speech_to_speech/TTS/presets/{alias}.txt"], check=False)
+        logger.info("[✓] Voice synced to crazycrab!")
+    except Exception as e:
+        logger.warning(f"Sync to crazycrab skipped: {e}")
+
+    logger.info(f"[✓] Voice profile {args.voice_id} ({args.voice_name}) created and registered successfully!")
 
 if __name__ == "__main__":
     main()

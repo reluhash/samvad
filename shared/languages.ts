@@ -1,43 +1,33 @@
-/**
- * Language definitions for Retell AI telecalling platform.
- * Indian languages are prominently featured for telecalling use cases.
- */
-
-export interface LanguageOption {
+export interface Language {
   code: string;
   label: string;
   nativeLabel: string;
   flag: string;
   isIndian: boolean;
-  /** Whether Retell supports this as a primary single-language agent */
-  retellSupported: "full" | "partial" | "multilingual-only";
 }
 
-export const LANGUAGES: LanguageOption[] = [
-  // ── Indian Languages ──────────────────────────────────────────────────────
+export const LANGUAGES: Language[] = [
+  // ── Indian Regional Languages ──────────────────────────────────────────────
   {
     code: "hi-IN",
     label: "Hindi",
     nativeLabel: "हिन्दी",
     flag: "🇮🇳",
     isIndian: true,
-    retellSupported: "full",
   },
   {
     code: "en-IN",
-    label: "English (India)",
-    nativeLabel: "English (India)",
+    label: "Indian English",
+    nativeLabel: "Indian English",
     flag: "🇮🇳",
     isIndian: true,
-    retellSupported: "full",
   },
   {
     code: "hi-IN-hinglish",
-    label: "Hinglish",
-    nativeLabel: "Hinglish (हिंग्लिश)",
+    label: "Hinglish (Hindi + English)",
+    nativeLabel: "Hinglish",
     flag: "🇮🇳",
     isIndian: true,
-    retellSupported: "multilingual-only",
   },
   {
     code: "ta-IN",
@@ -45,7 +35,6 @@ export const LANGUAGES: LanguageOption[] = [
     nativeLabel: "தமிழ்",
     flag: "🇮🇳",
     isIndian: true,
-    retellSupported: "multilingual-only",
   },
   {
     code: "te-IN",
@@ -53,7 +42,6 @@ export const LANGUAGES: LanguageOption[] = [
     nativeLabel: "తెలుగు",
     flag: "🇮🇳",
     isIndian: true,
-    retellSupported: "multilingual-only",
   },
   {
     code: "kn-IN",
@@ -61,7 +49,6 @@ export const LANGUAGES: LanguageOption[] = [
     nativeLabel: "ಕನ್ನಡ",
     flag: "🇮🇳",
     isIndian: true,
-    retellSupported: "multilingual-only",
   },
   {
     code: "ml-IN",
@@ -69,7 +56,6 @@ export const LANGUAGES: LanguageOption[] = [
     nativeLabel: "മലയാളം",
     flag: "🇮🇳",
     isIndian: true,
-    retellSupported: "multilingual-only",
   },
   {
     code: "mr-IN",
@@ -77,7 +63,6 @@ export const LANGUAGES: LanguageOption[] = [
     nativeLabel: "मराठी",
     flag: "🇮🇳",
     isIndian: true,
-    retellSupported: "multilingual-only",
   },
   {
     code: "gu-IN",
@@ -85,7 +70,6 @@ export const LANGUAGES: LanguageOption[] = [
     nativeLabel: "ગુજરાતી",
     flag: "🇮🇳",
     isIndian: true,
-    retellSupported: "multilingual-only",
   },
   {
     code: "bn-IN",
@@ -93,7 +77,6 @@ export const LANGUAGES: LanguageOption[] = [
     nativeLabel: "বাংলা",
     flag: "🇮🇳",
     isIndian: true,
-    retellSupported: "multilingual-only",
   },
   {
     code: "pa-IN",
@@ -101,7 +84,6 @@ export const LANGUAGES: LanguageOption[] = [
     nativeLabel: "ਪੰਜਾਬੀ",
     flag: "🇮🇳",
     isIndian: true,
-    retellSupported: "multilingual-only",
   },
   {
     code: "or-IN",
@@ -109,7 +91,6 @@ export const LANGUAGES: LanguageOption[] = [
     nativeLabel: "ଓଡ଼ିଆ",
     flag: "🇮🇳",
     isIndian: true,
-    retellSupported: "multilingual-only",
   },
   {
     code: "ur-IN",
@@ -117,7 +98,6 @@ export const LANGUAGES: LanguageOption[] = [
     nativeLabel: "اردو",
     flag: "🇮🇳",
     isIndian: true,
-    retellSupported: "multilingual-only",
   },
 
   // ── Global Languages ──────────────────────────────────────────────────────
@@ -127,7 +107,6 @@ export const LANGUAGES: LanguageOption[] = [
     nativeLabel: "English (US)",
     flag: "🇺🇸",
     isIndian: false,
-    retellSupported: "full",
   },
   {
     code: "en-GB",
@@ -135,7 +114,6 @@ export const LANGUAGES: LanguageOption[] = [
     nativeLabel: "English (UK)",
     flag: "🇬🇧",
     isIndian: false,
-    retellSupported: "full",
   },
   {
     code: "en-AU",
@@ -143,7 +121,6 @@ export const LANGUAGES: LanguageOption[] = [
     nativeLabel: "English (Australia)",
     flag: "🇦🇺",
     isIndian: false,
-    retellSupported: "full",
   },
   {
     code: "es-ES",
@@ -151,7 +128,6 @@ export const LANGUAGES: LanguageOption[] = [
     nativeLabel: "Español (España)",
     flag: "🇪🇸",
     isIndian: false,
-    retellSupported: "full",
   },
   {
     code: "es-419",
@@ -159,7 +135,6 @@ export const LANGUAGES: LanguageOption[] = [
     nativeLabel: "Español (Latinoamérica)",
     flag: "🌎",
     isIndian: false,
-    retellSupported: "full",
   },
   {
     code: "pt-BR",
@@ -167,7 +142,6 @@ export const LANGUAGES: LanguageOption[] = [
     nativeLabel: "Português (Brasil)",
     flag: "🇧🇷",
     isIndian: false,
-    retellSupported: "full",
   },
   {
     code: "fr-FR",
@@ -175,7 +149,6 @@ export const LANGUAGES: LanguageOption[] = [
     nativeLabel: "Français",
     flag: "🇫🇷",
     isIndian: false,
-    retellSupported: "full",
   },
   {
     code: "de-DE",
@@ -183,7 +156,6 @@ export const LANGUAGES: LanguageOption[] = [
     nativeLabel: "Deutsch",
     flag: "🇩🇪",
     isIndian: false,
-    retellSupported: "full",
   },
   {
     code: "it-IT",
@@ -191,7 +163,6 @@ export const LANGUAGES: LanguageOption[] = [
     nativeLabel: "Italiano",
     flag: "🇮🇹",
     isIndian: false,
-    retellSupported: "full",
   },
   {
     code: "ja-JP",
@@ -199,7 +170,6 @@ export const LANGUAGES: LanguageOption[] = [
     nativeLabel: "日本語",
     flag: "🇯🇵",
     isIndian: false,
-    retellSupported: "full",
   },
   {
     code: "zh-CN",
@@ -207,7 +177,6 @@ export const LANGUAGES: LanguageOption[] = [
     nativeLabel: "中文 (简体)",
     flag: "🇨🇳",
     isIndian: false,
-    retellSupported: "full",
   },
   {
     code: "ko-KR",
@@ -215,7 +184,6 @@ export const LANGUAGES: LanguageOption[] = [
     nativeLabel: "한국어",
     flag: "🇰🇷",
     isIndian: false,
-    retellSupported: "full",
   },
   {
     code: "ru-RU",
@@ -223,7 +191,6 @@ export const LANGUAGES: LanguageOption[] = [
     nativeLabel: "Русский",
     flag: "🇷🇺",
     isIndian: false,
-    retellSupported: "full",
   },
   {
     code: "ar-SA",
@@ -231,17 +198,11 @@ export const LANGUAGES: LanguageOption[] = [
     nativeLabel: "العربية",
     flag: "🇸🇦",
     isIndian: false,
-    retellSupported: "full",
   },
 ];
 
 export const INDIAN_LANGUAGES = LANGUAGES.filter((l) => l.isIndian);
 export const GLOBAL_LANGUAGES = LANGUAGES.filter((l) => !l.isIndian);
-
-/** Language codes that require multilingual/detect_language mode in Retell */
-export const MULTILINGUAL_ONLY_CODES = LANGUAGES.filter(
-  (l) => l.retellSupported === "multilingual-only"
-).map((l) => l.code);
 
 /** Map from language code to display label */
 export const LANGUAGE_MAP = Object.fromEntries(
@@ -266,12 +227,3 @@ export const INDIAN_LANGUAGE_PROMPTS: Record<string, string> = {
   "pa-IN": `You are a helpful telecalling agent. Always respond in Punjabi (ਪੰਜਾਬੀ). Use clear, polite, and professional Punjabi. Address the caller respectfully. Keep responses concise and natural for a phone conversation.`,
 };
 
-/**
- * Map Retell language code for API calls.
- * Hinglish and regional languages use multilingual detect mode.
- */
-export function getRetellLanguageCode(code: string): string {
-  if (code === "hi-IN-hinglish") return "multi";
-  if (MULTILINGUAL_ONLY_CODES.includes(code)) return "multi";
-  return code;
-}

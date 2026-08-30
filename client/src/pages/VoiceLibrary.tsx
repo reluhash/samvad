@@ -1,5 +1,4 @@
 import { useState, useRef } from "react";
-import { LANGUAGE_MAP, INDIAN_LANGUAGES } from "@shared/languages";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { Card, CardContent } from "@/components/ui/card";
@@ -23,9 +22,7 @@ import {
   Pause,
   Loader2,
   Search,
-  Star,
   Trash2,
-  Plus,
   Volume2,
   User,
   Sparkles,
@@ -36,7 +33,7 @@ import {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type RetellVoice = {
+type VoiceProfile = {
   voice_id: string;
   voice_name: string;
   provider: string;
@@ -49,15 +46,16 @@ type RetellVoice = {
 
 type SavedVoice = {
   id: number;
-  retellVoiceId: string;
+  voiceId?: string;
+  retellVoiceId?: string;
   name: string;
-  description: string | null;
-  provider: string | null;
-  gender: string | null;
-  accent: string | null;
-  age: string | null;
+  description?: string | null;
+  provider?: string | null;
+  gender?: string | null;
+  accent?: string | null;
+  age?: string | null;
   category: "premade" | "cloned" | "generated";
-  previewUrl: string | null;
+  previewUrl?: string | null;
 };
 
 // ─── Voice Card (Browse) ──────────────────────────────────────────────────────
@@ -70,9 +68,9 @@ function VoiceCard({
   onPlay,
   playingId,
 }: {
-  voice: RetellVoice;
+  voice: VoiceProfile;
   isSaved: boolean;
-  onSave: (v: RetellVoice) => void;
+  onSave: (v: VoiceProfile) => void;
   onRemove?: () => void;
   onPlay: (url: string, id: string) => void;
   playingId: string | null;
@@ -99,7 +97,6 @@ function VoiceCard({
               {voice.accent && voice.accent !== "Unknown" && (
                 <Badge variant="outline" className="text-xs px-1.5 py-0 border-border/50">{voice.accent}</Badge>
               )}
-              {/* Indian language badge */}
               {voice.accent && ["Indian", "Hindi", "Tamil", "Telugu", "Kannada", "Bengali", "Marathi", "Gujarati", "Malayalam", "Punjabi"].some(a => voice.accent?.toLowerCase().includes(a.toLowerCase())) && (
                 <Badge className="text-xs px-1.5 py-0 bg-orange-500/20 text-orange-400 border-orange-400/30 border">🇮🇳 Indian</Badge>
               )}
@@ -165,7 +162,9 @@ function SavedVoiceCard({
   onPlay: (url: string, id: string) => void;
   playingId: string | null;
 }) {
-  const isPlaying = playingId === voice.retellVoiceId;
+  const effectiveId = voice.voiceId || voice.retellVoiceId || String(voice.id);
+  const isPlaying = playingId === effectiveId;
+
   return (
     <Card className="border-border/40 bg-card/50 hover:border-primary/30 transition-all duration-200">
       <CardContent className="p-4">
@@ -202,7 +201,7 @@ function SavedVoiceCard({
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                onClick={() => onPlay(voice.previewUrl!, voice.retellVoiceId)}
+                onClick={() => onPlay(voice.previewUrl!, effectiveId)}
               >
                 {isPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
               </Button>
@@ -229,7 +228,6 @@ export default function VoiceLibrary() {
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [cloneDialogOpen, setCloneDialogOpen] = useState(false);
   const [cloneName, setCloneName] = useState("");
-  const [cloneProvider, setCloneProvider] = useState<"elevenlabs" | "cartesia">("elevenlabs");
   const [cloneAudioFile, setCloneAudioFile] = useState<File | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
@@ -239,8 +237,8 @@ export default function VoiceLibrary() {
   const chunksRef = useRef<Blob[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const { data: retellVoices, isLoading: loadingRetell } = trpc.voices.listRetell.useQuery();
-  const { data: savedVoices, isLoading: loadingSaved, refetch: refetchSaved } = trpc.voices.listSaved.useQuery();
+  const { data: premadeVoices = [], isLoading: loadingPremade } = trpc.voices.listPremade.useQuery();
+  const { data: savedVoices = [], isLoading: loadingSaved, refetch: refetchSaved } = trpc.voices.listSaved.useQuery();
 
   const saveMutation = trpc.voices.save.useMutation({
     onSuccess: (data) => {
@@ -248,20 +246,31 @@ export default function VoiceLibrary() {
         toast.info("Voice is already in your library");
       } else {
         toast.success("Voice saved to library");
+        refetchSaved();
       }
-      refetchSaved();
     },
     onError: (e) => toast.error(e.message),
   });
 
   const removeMutation = trpc.voices.remove.useMutation({
-    onSuccess: () => { toast.success("Voice removed from library"); refetchSaved(); },
+    onSuccess: () => {
+      toast.success("Voice removed from library");
+      refetchSaved();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const deleteAllClonedMutation = trpc.voices.deleteAllCloned.useMutation({
+    onSuccess: () => {
+      toast.success("All cloned voices deleted");
+      refetchSaved();
+    },
     onError: (e) => toast.error(e.message),
   });
 
   const cloneMutation = trpc.voices.clone.useMutation({
-    onSuccess: () => {
-      toast.success("Voice cloned and added to your library!");
+    onSuccess: (data) => {
+      toast.success(`Voice "${data.voice_name}" cloned and ready!`);
       setCloneDialogOpen(false);
       setCloneName("");
       setCloneAudioFile(null);
@@ -277,170 +286,159 @@ export default function VoiceLibrary() {
       setPlayingId(null);
       return;
     }
-    if (audioRef.current) audioRef.current.pause();
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
     const audio = new Audio(url);
     audioRef.current = audio;
-    audio.play();
+    audio.play().catch(() => toast.error("Unable to play audio sample"));
     setPlayingId(id);
     audio.onended = () => setPlayingId(null);
+    audio.onerror = () => setPlayingId(null);
   };
 
-  const startRecording = async () => {
+  const handleStartRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
       chunksRef.current = [];
-      recorder.ondataavailable = (e) => chunksRef.current.push(e.data);
-      recorder.onstop = () => {
-        setRecordedBlob(new Blob(chunksRef.current, { type: "audio/webm" }));
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+        setRecordedBlob(blob);
         stream.getTracks().forEach((t) => t.stop());
       };
-      recorder.start();
-      mediaRecorderRef.current = recorder;
+
+      mediaRecorder.start();
       setIsRecording(true);
+      toast.info("Recording started. Speak clearly for 5-10 seconds.");
     } catch {
-      toast.error("Microphone access denied.");
+      toast.error("Microphone access denied");
     }
   };
 
-  const stopRecording = () => {
-    mediaRecorderRef.current?.stop();
-    setIsRecording(false);
+  const handleStopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      toast.success("Recording captured!");
+    }
   };
 
-  const handleClone = async () => {
-    if (!cloneName.trim()) return toast.error("Please enter a voice name.");
-    const audioSource = cloneAudioFile || (recordedBlob ? new File([recordedBlob], "recording.webm", { type: "audio/webm" }) : null);
-    if (!audioSource) return toast.error("Please upload or record an audio sample.");
+  const handleCloneSubmit = async () => {
+    if (!cloneName.trim()) {
+      toast.error("Please enter a voice profile name");
+      return;
+    }
+    let fileToUpload: File | Blob | null = cloneAudioFile || recordedBlob;
+    if (!fileToUpload) {
+      toast.error("Please record audio or upload a sample file");
+      return;
+    }
 
-    setIsUploading(true);
     try {
+      setIsUploading(true);
       const formData = new FormData();
-      formData.append("file", audioSource);
-      const res = await fetch("/api/upload", { method: "POST", body: formData });
-      if (!res.ok) {
-        throw new Error("Audio upload failed");
+      if (fileToUpload instanceof File) {
+        formData.append("file", fileToUpload);
+      } else {
+        formData.append("file", fileToUpload, "recording.webm");
       }
-      const data = await res.json();
-      
-      cloneMutation.mutate({
-        audioUrl: data.url,
-        storageKey: data.key,
-        voiceName: cloneName.trim(),
-        provider: "local" as any,
+
+      const res = await fetch("/api/upload", {
+        method: "POST",
+        body: formData,
       });
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Upload failed.");
+      if (!res.ok) throw new Error("Audio upload failed");
+      const { url } = await res.json();
+
+      await cloneMutation.mutateAsync({
+        name: cloneName.trim(),
+        audioUrl: url,
+      });
+    } catch (err: any) {
+      toast.error(err.message || "Failed to clone voice");
     } finally {
       setIsUploading(false);
     }
   };
 
-  const [languageFilter, setLanguageFilter] = useState<"all" | "indian" | "english">("all");
-  const voices = (retellVoices as RetellVoice[] | undefined) ?? [];
-  const INDIAN_ACCENTS = ["indian", "hindi", "tamil", "telugu", "kannada", "bengali", "marathi", "gujarati", "malayalam", "punjabi"];
-  const filteredVoices = voices.filter((v) => {
-    const matchesSearch =
-      v.voice_name.toLowerCase().includes(search.toLowerCase()) ||
-      v.accent?.toLowerCase().includes(search.toLowerCase()) ||
-      v.gender?.toLowerCase().includes(search.toLowerCase());
-    const isIndianVoice = INDIAN_ACCENTS.some(a => v.accent?.toLowerCase().includes(a));
-    const matchesLanguage =
-      languageFilter === "all" ||
-      (languageFilter === "indian" && isIndianVoice) ||
-      (languageFilter === "english" && !isIndianVoice);
-    return matchesSearch && matchesLanguage;
-  });
-  const savedVoiceIds = new Set((savedVoices ?? []).map((v) => v.retellVoiceId));
+  const filteredPremade = premadeVoices.filter((v: VoiceProfile) =>
+    v.voice_name.toLowerCase().includes(search.toLowerCase()) ||
+    v.accent.toLowerCase().includes(search.toLowerCase()) ||
+    v.gender.toLowerCase().includes(search.toLowerCase())
+  );
 
   return (
-    <div className="h-full flex flex-col overflow-hidden">
-      <audio ref={audioRef} className="hidden" />
-
-      {/* Header */}
-      <div className="px-6 py-5 border-b border-border shrink-0">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold text-foreground">Voice Library</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              Browse voices and manage your local cloned voice collection
-            </p>
-          </div>
-          <Button onClick={() => setCloneDialogOpen(true)} className="gap-2">
-            <Plus className="h-4 w-4" />
-            Clone Voice
+    <div className="h-full flex flex-col overflow-auto bg-background p-6 space-y-6">
+      <div className="flex items-center justify-between border-b border-border pb-4">
+        <div>
+          <h1 className="text-xl font-bold text-foreground flex items-center gap-2">
+            <Volume2 className="w-5 h-5 text-primary" />
+            Voice Library & Zero-Shot Cloning
+          </h1>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            AI4Bharat IndicF5 (Indian multilingual) and Kokoro (English) voice profiles
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => deleteAllClonedMutation.mutate()}
+            disabled={deleteAllClonedMutation.isPending}
+            className="text-xs text-destructive hover:bg-destructive/10 gap-1.5"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            Delete All Clones
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => setCloneDialogOpen(true)}
+            className="text-xs gap-1.5 shadow-sm"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            Clone New Voice
           </Button>
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto p-6">
-        <Tabs defaultValue="browse" className="h-full flex flex-col">
-          <div className="flex items-center gap-4 mb-4 shrink-0">
-            <TabsList className="bg-muted/40">
-              <TabsTrigger value="browse" className="gap-2">
-                <Sparkles className="h-3.5 w-3.5" />
-                Browse Voices
-                {voices.length > 0 && (
-                  <Badge variant="secondary" className="ml-1 text-xs px-1.5 py-0">{voices.length}</Badge>
-                )}
-              </TabsTrigger>
-              <TabsTrigger value="library" className="gap-2">
-                <Star className="h-3.5 w-3.5" />
-                My Library
-                {(savedVoices?.length ?? 0) > 0 && (
-                  <Badge variant="secondary" className="ml-1 text-xs px-1.5 py-0">{savedVoices?.length}</Badge>
-                )}
-              </TabsTrigger>
-            </TabsList>
-            <div className="relative flex-1 max-w-sm">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search voices..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-9 bg-background/50"
-              />
-            </div>
-            {/* Language filter buttons */}
-            <div className="flex items-center gap-1.5">
-              {(["all", "indian", "english"] as const).map((f) => (
-                <button
-                  key={f}
-                  onClick={() => setLanguageFilter(f)}
-                  className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all border ${
-                    languageFilter === f
-                      ? "bg-primary/15 text-primary border-primary/30"
-                      : "bg-muted/40 text-muted-foreground border-transparent hover:border-border"
-                  }`}
-                >
-                  {f === "all" ? "All" : f === "indian" ? "🇮🇳 Indian" : "🌍 Global"}
-                </button>
-              ))}
-            </div>
+      <Tabs defaultValue="catalog" className="w-full">
+        <TabsList className="mb-4">
+          <TabsTrigger value="catalog" className="text-xs">Premade Catalog ({premadeVoices.length})</TabsTrigger>
+          <TabsTrigger value="saved" className="text-xs">My Saved Voices ({savedVoices.length})</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="catalog" className="space-y-4">
+          <div className="relative max-w-sm">
+            <Search className="w-4 h-4 absolute left-3 top-2.5 text-muted-foreground" />
+            <Input
+              placeholder="Search voices by name, accent..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9 text-xs h-9"
+            />
           </div>
 
-          <TabsContent value="browse" className="flex-1 overflow-auto mt-0">
-            {loadingRetell ? (
-              <div className="flex items-center justify-center h-48">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              </div>
-            ) : filteredVoices.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-48 gap-3 text-center">
-                <Volume2 className="h-10 w-10 text-muted-foreground/30" />
-                <p className="text-muted-foreground text-sm">
-                  {search ? "No voices match your search." : "No premade voices available."}
-                </p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                {filteredVoices.map((voice) => (
+          {loadingPremade ? (
+            <div className="py-12 flex justify-center"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {filteredPremade.map((v: VoiceProfile) => {
+                const isSaved = savedVoices.some((s) => (s.voiceId || s.retellVoiceId) === v.voice_id);
+                return (
                   <VoiceCard
-                    key={voice.voice_id}
-                    voice={voice}
-                    isSaved={savedVoiceIds.has(voice.voice_id)}
-                    onSave={(v) =>
+                    key={v.voice_id}
+                    voice={v}
+                    isSaved={isSaved}
+                    onSave={() =>
                       saveMutation.mutate({
-                        retellVoiceId: v.voice_id,
+                        voiceId: v.voice_id,
                         name: v.voice_name,
                         provider: v.provider,
                         gender: v.gender,
@@ -450,161 +448,121 @@ export default function VoiceLibrary() {
                         previewUrl: v.preview_audio_url,
                       })
                     }
-                    onRemove={() => {
-                      const saved = (savedVoices ?? []).find((s) => s.retellVoiceId === voice.voice_id);
-                      if (saved) removeMutation.mutate({ id: saved.id });
-                    }}
                     onPlay={handlePlay}
                     playingId={playingId}
                   />
-                ))}
-              </div>
-            )}
-          </TabsContent>
+                );
+              })}
+            </div>
+          )}
+        </TabsContent>
 
-          <TabsContent value="library" className="flex-1 overflow-auto mt-0">
-            {loadingSaved ? (
-              <div className="flex items-center justify-center h-48">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              </div>
-            ) : (savedVoices ?? []).length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-48 gap-3 text-center">
-                <Star className="h-10 w-10 text-muted-foreground/30" />
-                <p className="text-muted-foreground text-sm">Your library is empty.</p>
-                <p className="text-xs text-muted-foreground/60">
-                  Browse voices and bookmark them, or clone your own voice.
-                </p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                {(savedVoices ?? []).map((voice) => (
-                  <SavedVoiceCard
-                    key={voice.id}
-                    voice={voice as SavedVoice}
-                    onRemove={() => removeMutation.mutate({ id: voice.id })}
-                    onPlay={handlePlay}
-                    playingId={playingId}
-                  />
-                ))}
-              </div>
-            )}
-          </TabsContent>
-        </Tabs>
-      </div>
+        <TabsContent value="saved" className="space-y-4">
+          {loadingSaved ? (
+            <div className="py-12 flex justify-center"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
+          ) : savedVoices.length === 0 ? (
+            <div className="py-12 text-center text-xs text-muted-foreground">
+              No saved voices found. Clone a voice or save one from the catalog!
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {savedVoices.map((v) => (
+                <SavedVoiceCard
+                  key={v.id}
+                  voice={v}
+                  onRemove={() => removeMutation.mutate({ id: v.id, voiceId: v.voiceId || v.retellVoiceId })}
+                  onPlay={handlePlay}
+                  playingId={playingId}
+                />
+              ))}
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
 
-      {/* ─── Clone Voice Dialog ─────────────────────────────────────────────── */}
+      {/* Clone Voice Dialog */}
       <Dialog open={cloneDialogOpen} onOpenChange={setCloneDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <AudioLines className="h-5 w-5 text-primary" />
-              Clone a Voice
+            <DialogTitle className="text-base flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-primary" />
+              Zero-Shot Voice Cloning (IndicF5)
             </DialogTitle>
-            <DialogDescription>
-              Upload or record a 10-second audio sample to create a local cloned voice profile.
+            <DialogDescription className="text-xs">
+              Upload a 5–10s audio clip or record with your microphone.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-2">
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Voice Name</Label>
+              <Label className="text-xs">Voice Profile Name</Label>
               <Input
-                placeholder="e.g. My Voice, Sales Rep, Support Agent"
+                placeholder="e.g. Bipul Voice Clone"
                 value={cloneName}
                 onChange={(e) => setCloneName(e.target.value)}
+                className="text-xs h-9"
               />
             </div>
 
-            <div className="space-y-1.5 hidden">
-              <Label className="text-xs text-muted-foreground">Voice Provider</Label>
-              <div className="flex gap-2">
-                {(["elevenlabs", "cartesia"] as const).map((p) => (
-                  <button
-                    key={p}
-                    onClick={() => setCloneProvider(p)}
-                    className={`px-3 py-1.5 rounded-full text-xs font-medium capitalize transition-all border ${
-                      cloneProvider === p
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "bg-background/50 text-muted-foreground border-border/50 hover:border-primary/50"
-                    }`}
+            <div className="space-y-2">
+              <Label className="text-xs">Record Reference Audio (5–10s)</Label>
+              <div className="flex items-center gap-2">
+                {isRecording ? (
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    onClick={handleStopRecording}
+                    className="text-xs gap-1.5 animate-pulse"
                   >
-                    {p === "elevenlabs" ? "ElevenLabs" : "Cartesia"}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Audio Sample</Label>
-              <div
-                className="border-2 border-dashed border-border/50 rounded-xl p-6 text-center cursor-pointer hover:border-primary/40 transition-colors"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                {cloneAudioFile ? (
-                  <div className="flex items-center justify-center gap-2 text-sm">
-                    <Volume2 className="h-4 w-4 text-primary" />
-                    <span className="font-medium truncate max-w-[200px]">{cloneAudioFile.name}</span>
-                  </div>
+                    <Mic className="w-3.5 h-3.5" /> Stop Recording
+                  </Button>
                 ) : (
-                  <div className="space-y-1">
-                    <Upload className="h-6 w-6 text-muted-foreground mx-auto" />
-                    <p className="text-sm text-muted-foreground">Click to upload audio file</p>
-                    <p className="text-xs text-muted-foreground/60">MP3, WAV, M4A, WEBM supported</p>
-                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleStartRecording}
+                    className="text-xs gap-1.5"
+                  >
+                    <Mic className="w-3.5 h-3.5" /> Start Mic Recording
+                  </Button>
                 )}
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="audio/*"
-                  className="hidden"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) { setCloneAudioFile(f); setRecordedBlob(null); }
-                  }}
-                />
+                {recordedBlob && <Badge variant="secondary" className="text-xs">Audio Captured</Badge>}
               </div>
             </div>
 
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t border-border/50" />
-              </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-background px-2 text-muted-foreground">or record</span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <Button
-                variant={isRecording ? "destructive" : "outline"}
-                size="sm"
-                onClick={isRecording ? stopRecording : startRecording}
-                className="gap-2 flex-1"
-              >
-                <Mic className={`h-4 w-4 ${isRecording ? "animate-pulse" : ""}`} />
-                {isRecording ? "Stop Recording" : "Start Recording"}
-              </Button>
-              {recordedBlob && !cloneAudioFile && (
-                <Badge variant="secondary" className="gap-1 text-emerald-400 border-emerald-400/30 bg-emerald-400/10">
-                  <Check className="h-3 w-3" /> Recorded
-                </Badge>
-              )}
+            <div className="space-y-2">
+              <Label className="text-xs">Or Upload Audio File (.wav, .mp3, .m4a)</Label>
+              <Input
+                type="file"
+                accept="audio/*"
+                ref={fileInputRef}
+                onChange={(e) => {
+                  if (e.target.files?.[0]) setCloneAudioFile(e.target.files[0]);
+                }}
+                className="text-xs h-9"
+              />
             </div>
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setCloneDialogOpen(false)}>Cancel</Button>
             <Button
-              onClick={handleClone}
-              disabled={cloneMutation.isPending || isUploading || (!cloneAudioFile && !recordedBlob)}
-              className="gap-2"
+              onClick={handleCloneSubmit}
+              disabled={isUploading || cloneMutation.isPending}
+              className="text-xs gap-2"
             >
-              {(cloneMutation.isPending || isUploading) ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+              {isUploading || cloneMutation.isPending ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  Cloning Voice...
+                </>
               ) : (
-                <Sparkles className="h-4 w-4" />
+                <>
+                  <Sparkles className="w-3.5 h-3.5" />
+                  Clone & Register Voice
+                </>
               )}
-              Clone Voice
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -612,3 +570,4 @@ export default function VoiceLibrary() {
     </div>
   );
 }
+

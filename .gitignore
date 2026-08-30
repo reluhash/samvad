@@ -1,33 +1,69 @@
 # Logs
-logs
+logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# Node & Python dependencies
-node_modules
-.venv
-__pycache__
+# Node & Python dependencies (recursive)
+node_modules/
+**/node_modules/
+.venv/
+**/.venv/
+venv/
+**/venv/
+__pycache__/
+**/__pycache__/
 *.pyc
+*.pyo
+*.pyd
 
-# Builds
-dist
-dist-ssr
+# Builds & caches
+dist/
+dist-ssr/
+build/
+.cache/
+.pytest_cache/
 *.local
 
-# Uploads & temporary media
+# Database & runtime storage
+*.db
+*.sqlite
+*.sqlite3
+redis-data/
+postgres_data/
+
+# Model weights, binaries & compiled libraries
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.onnx
+*.jit
+*.so
+*.dll
+*.dylib
+*.a
+
+# Uploads & custom audio references
 uploads/voice-samples/*
 !uploads/voice-samples/.gitkeep
+uploads/*
+fish-speech-int4-patch/references/*
+!fish-speech-int4-patch/references/.gitkeep
 
-# Environment variables
+# Secrets & certificates
 .env
-.env.local
+.env.*
+!.env.example
+*.pem
+*.key
 
-# Editor & OS
+# Editor & OS files
 .vscode/*
 !.vscode/extensions.json
-.idea
+.idea/
 .DS_Store
 *.sw?
+

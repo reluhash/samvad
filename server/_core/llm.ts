@@ -1,4 +1,4 @@
-import { ENV } from "./env";
+import http from "http";
 
 export type Role = "system" | "user" | "assistant" | "tool" | "function";
 
@@ -41,40 +41,12 @@ export type Tool = {
   };
 };
 
-export type ToolChoicePrimitive = "none" | "auto" | "required";
-export type ToolChoiceByName = { name: string };
-export type ToolChoiceExplicit = {
-  type: "function";
-  function: {
-    name: string;
-  };
-};
-
-export type ToolChoice =
-  | ToolChoicePrimitive
-  | ToolChoiceByName
-  | ToolChoiceExplicit;
-
 export type InvokeParams = {
   messages: Message[];
   tools?: Tool[];
-  toolChoice?: ToolChoice;
-  tool_choice?: ToolChoice;
   maxTokens?: number;
   max_tokens?: number;
-  outputSchema?: OutputSchema;
-  output_schema?: OutputSchema;
-  responseFormat?: ResponseFormat;
-  response_format?: ResponseFormat;
-};
-
-export type ToolCall = {
-  id: string;
-  type: "function";
-  function: {
-    name: string;
-    arguments: string;
-  };
+  temperature?: number;
 };
 
 export type InvokeResult = {
@@ -85,8 +57,7 @@ export type InvokeResult = {
     index: number;
     message: {
       role: Role;
-      content: string | Array<TextContent | ImageContent | FileContent>;
-      tool_calls?: ToolCall[];
+      content: string;
     };
     finish_reason: string | null;
   }>;
@@ -97,236 +68,95 @@ export type InvokeResult = {
   };
 };
 
-export type JsonSchema = {
-  name: string;
-  schema: Record<string, unknown>;
-  strict?: boolean;
-};
-
-export type OutputSchema = JsonSchema;
-
-export type ResponseFormat =
-  | { type: "text" }
-  | { type: "json_object" }
-  | { type: "json_schema"; json_schema: JsonSchema };
-
-const ensureArray = (
-  value: MessageContent | MessageContent[]
-): MessageContent[] => (Array.isArray(value) ? value : [value]);
-
-const normalizeContentPart = (
-  part: MessageContent
-): TextContent | ImageContent | FileContent => {
-  if (typeof part === "string") {
-    return { type: "text", text: part };
+const normalizeMessage = (m: Message) => {
+  let text = "";
+  if (typeof m.content === "string") {
+    text = m.content;
+  } else if (Array.isArray(m.content)) {
+    text = m.content.map((c) => (typeof c === "string" ? c : "text" in c ? c.text : "")).join("\n");
+  } else if (typeof m.content === "object" && "text" in m.content) {
+    text = (m.content as any).text;
   }
-
-  if (part.type === "text") {
-    return part;
-  }
-
-  if (part.type === "image_url") {
-    return part;
-  }
-
-  if (part.type === "file_url") {
-    return part;
-  }
-
-  throw new Error("Unsupported message content part");
-};
-
-const normalizeMessage = (message: Message) => {
-  const { role, name, tool_call_id } = message;
-
-  if (role === "tool" || role === "function") {
-    const content = ensureArray(message.content)
-      .map(part => (typeof part === "string" ? part : JSON.stringify(part)))
-      .join("\n");
-
-    return {
-      role,
-      name,
-      tool_call_id,
-      content,
-    };
-  }
-
-  const contentParts = ensureArray(message.content).map(normalizeContentPart);
-
-  // If there's only text content, collapse to a single string for compatibility
-  if (contentParts.length === 1 && contentParts[0].type === "text") {
-    return {
-      role,
-      name,
-      content: contentParts[0].text,
-    };
-  }
-
   return {
-    role,
-    name,
-    content: contentParts,
+    role: m.role,
+    content: text,
   };
 };
 
-const normalizeToolChoice = (
-  toolChoice: ToolChoice | undefined,
-  tools: Tool[] | undefined
-): "none" | "auto" | ToolChoiceExplicit | undefined => {
-  if (!toolChoice) return undefined;
-
-  if (toolChoice === "none" || toolChoice === "auto") {
-    return toolChoice;
-  }
-
-  if (toolChoice === "required") {
-    if (!tools || tools.length === 0) {
-      throw new Error(
-        "tool_choice 'required' was provided but no tools were configured"
-      );
-    }
-
-    if (tools.length > 1) {
-      throw new Error(
-        "tool_choice 'required' needs a single tool or specify the tool name explicitly"
-      );
-    }
-
-    return {
-      type: "function",
-      function: { name: tools[0].function.name },
-    };
-  }
-
-  if ("name" in toolChoice) {
-    return {
-      type: "function",
-      function: { name: toolChoice.name },
-    };
-  }
-
-  return toolChoice;
-};
-
-const resolveApiUrl = () =>
-  ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
-    ? `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/chat/completions`
-    : "https://forge.manus.im/v1/chat/completions";
-
-const assertApiKey = () => {
-  if (!ENV.forgeApiKey) {
-    throw new Error("OPENAI_API_KEY is not configured");
-  }
-};
-
-const normalizeResponseFormat = ({
-  responseFormat,
-  response_format,
-  outputSchema,
-  output_schema,
-}: {
-  responseFormat?: ResponseFormat;
-  response_format?: ResponseFormat;
-  outputSchema?: OutputSchema;
-  output_schema?: OutputSchema;
-}):
-  | { type: "json_schema"; json_schema: JsonSchema }
-  | { type: "text" }
-  | { type: "json_object" }
-  | undefined => {
-  const explicitFormat = responseFormat || response_format;
-  if (explicitFormat) {
-    if (
-      explicitFormat.type === "json_schema" &&
-      !explicitFormat.json_schema?.schema
-    ) {
-      throw new Error(
-        "responseFormat json_schema requires a defined schema object"
-      );
-    }
-    return explicitFormat;
-  }
-
-  const schema = outputSchema || output_schema;
-  if (!schema) return undefined;
-
-  if (!schema.name || !schema.schema) {
-    throw new Error("outputSchema requires both name and schema");
-  }
-
-  return {
-    type: "json_schema",
-    json_schema: {
-      name: schema.name,
-      schema: schema.schema,
-      ...(typeof schema.strict === "boolean" ? { strict: schema.strict } : {}),
-    },
-  };
-};
-
+/**
+ * Invoke vLLM (Gemma 4 AWQ on Port 8100) or local LiteLLM proxy (Port 4000)
+ * No OpenAI API key required!
+ */
 export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
-  assertApiKey();
+  const messages = params.messages.map(normalizeMessage);
+  const maxTokens = params.maxTokens || params.max_tokens || 800;
+  const temperature = params.temperature ?? 0.7;
 
-  const {
+  const payload = JSON.stringify({
+    model: "cyankiwi/gemma-4-26B-A4B-it-AWQ-4bit",
     messages,
-    tools,
-    toolChoice,
-    tool_choice,
-    outputSchema,
-    output_schema,
-    responseFormat,
-    response_format,
-  } = params;
-
-  const payload: Record<string, unknown> = {
-    model: "gemini-2.5-flash",
-    messages: messages.map(normalizeMessage),
-  };
-
-  if (tools && tools.length > 0) {
-    payload.tools = tools;
-  }
-
-  const normalizedToolChoice = normalizeToolChoice(
-    toolChoice || tool_choice,
-    tools
-  );
-  if (normalizedToolChoice) {
-    payload.tool_choice = normalizedToolChoice;
-  }
-
-  payload.max_tokens = 32768
-  payload.thinking = {
-    "budget_tokens": 128
-  }
-
-  const normalizedResponseFormat = normalizeResponseFormat({
-    responseFormat,
-    response_format,
-    outputSchema,
-    output_schema,
+    max_tokens: maxTokens,
+    temperature,
   });
 
-  if (normalizedResponseFormat) {
-    payload.response_format = normalizedResponseFormat;
-  }
+  // Try direct vLLM on Port 8100 first, fallback to LiteLLM on Port 4000
+  return new Promise((resolve, reject) => {
+    const postToUrl = (port: number, isFallback = false) => {
+      const req = http.request(
+        {
+          hostname: "127.0.0.1",
+          port,
+          path: "/v1/chat/completions",
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Content-Length": Buffer.byteLength(payload),
+          },
+          timeout: 30000,
+        },
+        (res) => {
+          let body = "";
+          res.on("data", (chunk) => (body += chunk));
+          res.on("end", () => {
+            try {
+              if (res.statusCode && res.statusCode >= 400) {
+                if (!isFallback && port === 8100) {
+                  return postToUrl(4000, true);
+                }
+                return reject(new Error(`vLLM HTTP ${res.statusCode}: ${body}`));
+              }
+              const json = JSON.parse(body);
+              resolve(json);
+            } catch (err: any) {
+              if (!isFallback && port === 8100) {
+                return postToUrl(4000, true);
+              }
+              reject(new Error(`Failed to parse vLLM response: ${err.message}`));
+            }
+          });
+        }
+      );
 
-  const response = await fetch(resolveApiUrl(), {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${ENV.forgeApiKey}`,
-    },
-    body: JSON.stringify(payload),
+      req.on("error", (err) => {
+        if (!isFallback && port === 8100) {
+          return postToUrl(4000, true);
+        }
+        reject(new Error(`vLLM Connection Error (Port ${port}): ${err.message}`));
+      });
+
+      req.on("timeout", () => {
+        req.destroy();
+        if (!isFallback && port === 8100) {
+          return postToUrl(4000, true);
+        }
+        reject(new Error("vLLM request timed out"));
+      });
+
+      req.write(payload);
+      req.end();
+    };
+
+    postToUrl(8100);
   });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(
-      `LLM invoke failed: ${response.status} ${response.statusText} – ${errorText}`
-    );
-  }
-
-  return (await response.json()) as InvokeResult;
 }
+

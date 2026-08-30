@@ -362,3 +362,236 @@ export async function getTranscriptsByCall(callId: number) {
   if (!db) return [];
   return db.select().from(callTranscripts).where(eq(callTranscripts.callId, callId)).orderBy(callTranscripts.timestamp);
 }
+
+
+export async function deleteCall(callId: number) {
+  const db = await getDb();
+  const idx = _inMemoryCalls.findIndex((c) => c.id === callId);
+  if (idx !== -1) {
+    _inMemoryCalls.splice(idx, 1);
+  }
+  if (!db) return;
+  try {
+    await db.delete(callTranscripts).where(eq(callTranscripts.callId, callId));
+    await db.delete(calls).where(eq(calls.id, callId));
+  } catch (err) {
+    console.error("deleteCall error:", err);
+  }
+}
+
+export async function deleteAllCalls(userId?: number) {
+  const db = await getDb();
+  if (userId) {
+    for (let i = _inMemoryCalls.length - 1; i >= 0; i--) {
+      if (_inMemoryCalls[i].userId === userId) {
+        _inMemoryCalls.splice(i, 1);
+      }
+    }
+  } else {
+    _inMemoryCalls.length = 0;
+  }
+  if (!db) return;
+  try {
+    if (userId) {
+      const userCalls = await db.select({ id: calls.id }).from(calls).where(eq(calls.userId, userId));
+      for (const c of userCalls) {
+        await db.delete(callTranscripts).where(eq(callTranscripts.callId, c.id));
+      }
+      await db.delete(calls).where(eq(calls.userId, userId));
+    } else {
+      await db.delete(callTranscripts);
+      await db.delete(calls);
+    }
+  } catch (err) {
+    console.error("deleteAllCalls error:", err);
+  }
+}
+
+// ─── Direct Whitelisting & Invite Codes ──────────────────────────────────────
+
+export interface InviteCodeRecord {
+  id: number;
+  code: string;
+  maxUses: number;
+  usesCount: number;
+  role: "user" | "admin";
+  note?: string | null;
+  createdAt: Date;
+}
+
+const _inMemoryInviteCodes: InviteCodeRecord[] = [
+  {
+    id: 1,
+    code: "SAMVAD-VIP-2026",
+    maxUses: 100,
+    usesCount: 0,
+    role: "user",
+    note: "General Team Access Code",
+    createdAt: new Date(),
+  },
+];
+
+let _nextInviteCodeId = 2;
+
+export async function listInviteCodes(): Promise<InviteCodeRecord[]> {
+  return _inMemoryInviteCodes;
+}
+
+export async function createInviteCode(data: {
+  code: string;
+  maxUses: number;
+  role: "user" | "admin";
+  note?: string;
+}): Promise<InviteCodeRecord> {
+  const cleanCode = data.code.trim().toUpperCase();
+  const existing = _inMemoryInviteCodes.find((c) => c.code === cleanCode);
+  if (existing) {
+    existing.maxUses = data.maxUses;
+    existing.role = data.role;
+    existing.note = data.note ?? null;
+    return existing;
+  }
+  const newCode: InviteCodeRecord = {
+    id: _nextInviteCodeId++,
+    code: cleanCode,
+    maxUses: data.maxUses,
+    usesCount: 0,
+    role: data.role,
+    note: data.note ?? null,
+    createdAt: new Date(),
+  };
+  _inMemoryInviteCodes.push(newCode);
+  return newCode;
+}
+
+export async function deleteInviteCode(id: number): Promise<boolean> {
+  const idx = _inMemoryInviteCodes.findIndex((c) => c.id === id);
+  if (idx !== -1) {
+    _inMemoryInviteCodes.splice(idx, 1);
+    return true;
+  }
+  return false;
+}
+
+export async function redeemInviteCode(code: string, userId: number): Promise<{ success: boolean; message: string; role?: string }> {
+  const cleanCode = code.trim().toUpperCase();
+  const invite = _inMemoryInviteCodes.find((c) => c.code === cleanCode);
+  if (!invite) {
+    return { success: false, message: "Invalid invite code" };
+  }
+  if (invite.usesCount >= invite.maxUses) {
+    return { success: false, message: "This invite code has reached its maximum usage limit" };
+  }
+
+  invite.usesCount += 1;
+  await setUserApiAccess(userId, "approved");
+
+  const db = await getDb();
+  if (db && invite.role === "admin") {
+    await db.update(users).set({ role: "admin", updatedAt: new Date() }).where(eq(users.id, userId));
+  }
+
+  // Update or insert access request as approved
+  const existingReq = await getAccessRequestByUser(userId);
+  if (existingReq) {
+    await updateAccessRequestStatus(existingReq.id, "approved", `Redeemed invite code: ${cleanCode}`);
+  } else {
+    if (db) {
+      await db.insert(accessRequests).values({
+        userId,
+        status: "approved",
+        message: `Redeemed code: ${cleanCode}`,
+        adminNote: "Automatic approval via invite code",
+        requestedAt: new Date(),
+        reviewedAt: new Date(),
+      });
+    }
+  }
+
+  return { success: true, message: `Access granted! Role: ${invite.role}`, role: invite.role };
+}
+
+export async function getAllUsersList() {
+  const db = await getDb();
+  if (!db) {
+    return [
+      {
+        id: 1,
+        openId: "local-admin-openid",
+        name: "Admin",
+        email: "admin@voiceforge.local",
+        role: "admin",
+        apiAccess: "approved",
+        createdAt: new Date(),
+        lastSignedIn: new Date(),
+      },
+    ];
+  }
+  return db.select().from(users).orderBy(desc(users.createdAt));
+}
+
+export async function grantDirectAccessByEmail(data: {
+  email: string;
+  name?: string;
+  role: "user" | "admin";
+}) {
+  const db = await getDb();
+  const cleanEmail = data.email.trim().toLowerCase();
+  const displayName = data.name?.trim() || cleanEmail.split("@")[0];
+
+  if (!db) return;
+
+  // Check if user already exists
+  const existing = await db.select().from(users).where(eq(users.email, cleanEmail)).limit(1);
+  if (existing.length > 0) {
+    const user = existing[0];
+    await db.update(users).set({
+      role: data.role,
+      apiAccess: "approved",
+      updatedAt: new Date(),
+    }).where(eq(users.id, user.id));
+
+    const existingReq = await getAccessRequestByUser(user.id);
+    if (existingReq) {
+      await updateAccessRequestStatus(existingReq.id, "approved", "Direct admin approval");
+    }
+    return user;
+  }
+
+  // Insert pre-approved user
+  const openId = `direct_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  await db.insert(users).values({
+    openId,
+    name: displayName,
+    email: cleanEmail,
+    role: data.role,
+    apiAccess: "approved",
+    loginMethod: "direct_whitelist",
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    lastSignedIn: new Date(),
+  });
+
+  const newUser = await db.select().from(users).where(eq(users.email, cleanEmail)).limit(1);
+  return newUser[0];
+}
+
+export async function updateUserRoleAndAccess(userId: number, role: "user" | "admin", apiAccess: "none" | "approved" | "revoked") {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(users).set({
+    role,
+    apiAccess,
+    updatedAt: new Date(),
+  }).where(eq(users.id, userId));
+}
+
+export async function deleteUserAccount(userId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(accessRequests).where(eq(accessRequests.userId, userId));
+  await db.delete(calls).where(eq(calls.userId, userId));
+  await db.delete(voices).where(eq(voices.userId, userId));
+  await db.delete(users).where(eq(users.id, userId));
+}
+

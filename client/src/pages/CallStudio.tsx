@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useDirectVoiceSession } from "@/hooks/useDirectVoiceSession";
+import { usePhoneCallSession } from "@/hooks/usePhoneCallSession";
 import { useAuth } from "@/_core/hooks/useAuth";
 
 import { trpc } from "@/lib/trpc";
@@ -9,9 +10,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import {
   Phone,
@@ -29,37 +31,149 @@ import {
   Globe,
   PhoneOff,
   Radio,
+  Headphones,
+  Activity,
+  User,
+  Bot,
+  BookOpen,
+  Send,
+  Copy,
+  Check,
+  Languages,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useLocation } from "wouter";
-import { INDIAN_LANGUAGES, GLOBAL_LANGUAGES, LANGUAGE_MAP, MULTILINGUAL_ONLY_CODES } from "@shared/languages";
+import { INDIAN_LANGUAGES, GLOBAL_LANGUAGES, LANGUAGE_MAP } from "@shared/languages";
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// ─── Preset Configurations ───────────────────────────────────────────────────
 
-const INDIAN_PRESETS = [
-  { label: "Hindi Sales", language: "hi-IN", tone: "professional" as const, prompt: "आप एक पेशेवर सेल्स एजेंट हैं। उत्पाद के फायदे बताएं और ग्राहक को डेमो बुक करने के लिए प्रेरित करें।" },
-  { label: "Hindi Support", language: "hi-IN", tone: "empathetic" as const, prompt: "आप एक सहायक कस्टमर केयर एजेंट हैं। ग्राहक की समस्या ध्यान से सुनें और समाधान प्रदान करें।" },
-  { label: "Hinglish Casual", language: "hi-IN-hinglish", tone: "friendly" as const, prompt: "Aap ek friendly agent hain. Customer se natural Hinglish mein baat karein aur unki problem solve karein." },
-  { label: "English (India)", language: "en-IN", tone: "formal" as const, prompt: "You are a professional Indian English speaking agent. Be polite, clear, and culturally aware in your responses." },
-  { label: "Tamil Support", language: "ta-IN", tone: "empathetic" as const, prompt: "நீங்கள் ஒரு உதவிகரமான வாடிக்கையாளர் சேவை முகவர். தமிழில் பேசி வாடிக்கையாளரின் பிரச்சனைகளை தீர்க்கவும்." },
-  { label: "Telugu Sales", language: "te-IN", tone: "professional" as const, prompt: "మీరు ఒక నిపుణమైన సేల్స్ ఏజెంట్. తెలుగుల౏ మాట్లాడి ఉత్పత్తి యొక్క ప్రయోజనాలను వివరించండి." },
+interface PresetItem {
+  id: string;
+  category: "hindi" | "english" | "regional";
+  label: string;
+  badge: string;
+  language: string;
+  voice: string;
+  tone: "professional" | "casual" | "friendly" | "formal" | "empathetic";
+  prompt: string;
+}
+
+const PRESETS: PresetItem[] = [
+  // ── Hindi Defaults ──
+  {
+    id: "hi-sales",
+    category: "hindi",
+    label: "🇮🇳 Hindi Sales & Outreach",
+    badge: "Aanchal · hi-IN",
+    language: "hi-IN",
+    voice: "Aanchal-hi",
+    tone: "professional",
+    prompt: "आप एक पेशेवर और विनम्र सेल्स एग्जीक्यूटिव हैं। ग्राहक को उत्पाद के मुख्य फायदे बताएं और उन्हें डेमो बुक करने के लिए प्रेरित करें। केवल 1-2 छोटे और स्वाभाविक हिंदी वाक्यों में उत्तर दें।",
+  },
+  {
+    id: "hi-support",
+    category: "hindi",
+    label: "🇮🇳 Hindi Customer Support",
+    badge: "Rohit · hi-IN",
+    language: "hi-IN",
+    voice: "Rohit-hi",
+    tone: "empathetic",
+    prompt: "आप एक सहायक और समझदार कस्टमर केयर एजेंट हैं। ग्राहक की समस्या ध्यान से सुनें और विनम्रता से सरल समाधान प्रदान करें। केवल 1-2 छोटे वाक्यों में बोलें।",
+  },
+  {
+    id: "hi-story",
+    category: "hindi",
+    label: "📖 Hindi Storyteller (5-Min Mode)",
+    badge: "Ananya · hi-IN",
+    language: "hi-IN",
+    voice: "ananya",
+    tone: "casual",
+    prompt: "आप एक रचनात्मक और भावुक कहानीकार हैं। बच्चों और बड़ों के लिए रोचक, सस्पेंस और प्रेरणा से भरी हिंदी कहानी सुनाएं। विस्तृत, सजीव और मनमोहक अंदाज़ में बोलें।",
+  },
+  {
+    id: "hi-hinglish",
+    category: "hindi",
+    label: "🇮🇳 Hinglish Casual Agent",
+    badge: "Aanchal · Hinglish",
+    language: "hi-IN-hinglish",
+    voice: "Aanchal-hi",
+    tone: "friendly",
+    prompt: "Aap ek friendly voice agent hain. Customer se natural Hinglish mein baat karein aur unki problem solve karein. Keep responses short and conversational.",
+  },
+
+  // ── English Defaults ──
+  {
+    id: "en-sales",
+    category: "english",
+    label: "✨ English Sales & Growth",
+    badge: "Bella · US English",
+    language: "en-US",
+    voice: "af_bella",
+    tone: "professional",
+    prompt: "You are a dynamic product specialist and sales executive. Highlight key value propositions and encourage the customer to schedule a live demo. Respond in 1-2 punchy, conversational sentences.",
+  },
+  {
+    id: "en-support",
+    category: "english",
+    label: "✨ English Tech Support",
+    badge: "Adam · US English",
+    language: "en-US",
+    voice: "am_adam",
+    tone: "empathetic",
+    prompt: "You are an expert technical support engineer. Listen patiently to customer issues and provide clear, step-by-step troubleshooting assistance in 1-2 natural spoken sentences.",
+  },
+  {
+    id: "en-formal",
+    category: "english",
+    label: "🇬🇧 British Formal Concierge",
+    badge: "Emma · UK English",
+    language: "en-GB",
+    voice: "bf_emma",
+    tone: "formal",
+    prompt: "You are a courteous British concierge voice assistant. Deliver polite, articulate, and precise responses to customer inquiries.",
+  },
+  {
+    id: "en-indic",
+    category: "english",
+    label: "🇮🇳 Indian English Assistant",
+    badge: "Aarav · Indian English",
+    language: "en-IN",
+    voice: "default_indic",
+    tone: "formal",
+    prompt: "You are a professional Indian English speaking voice assistant. Be polite, clear, and direct in your responses. Keep answers concise.",
+  },
+
+  // ── Regional Indic Defaults ──
+  {
+    id: "ta-support",
+    category: "regional",
+    label: "🇮🇳 Tamil Customer Support",
+    badge: "Aarav · Tamil",
+    language: "ta-IN",
+    voice: "default_indic",
+    tone: "empathetic",
+    prompt: "நீங்கள் ஒரு உதவிகரமான வாடிக்கையாளர் சேவை முகவர். தமிழில் பேசி வாடிக்கையாளரின் பிரச்சனைகளை தீர்க்கவும்.",
+  },
+  {
+    id: "te-support",
+    category: "regional",
+    label: "🇮🇳 Telugu Support",
+    badge: "Aarav · Telugu",
+    language: "te-IN",
+    voice: "default_indic",
+    tone: "friendly",
+    prompt: "మీరు సహాయక కస్టమర్ కేర్ ఎగ్జిక్యూటివ్. కస్టమర్ సమస్యలను విని తెలుగులో స్పష్టమైన పరిష్కారం అందించండి.",
+  },
 ];
 
-const TONES = [
-  { value: "professional", label: "Professional", desc: "Formal and business-oriented" },
-  { value: "casual", label: "Casual", desc: "Relaxed and conversational" },
-  { value: "friendly", label: "Friendly", desc: "Warm and approachable" },
-  { value: "formal", label: "Formal", desc: "Structured and precise" },
-  { value: "empathetic", label: "Empathetic", desc: "Understanding and supportive" },
-] as const;
-
-const CALL_TYPES = [
-  { value: "web", label: "Web Call", icon: Globe, placeholder: "" },
-  { value: "phone", label: "Phone Number", icon: Phone, placeholder: "+1 (555) 000-0000" },
-  { value: "meet", label: "Google Meet", icon: Video, placeholder: "https://meet.google.com/..." },
-  { value: "zoom", label: "Zoom", icon: Video, placeholder: "https://zoom.us/j/..." },
-  { value: "teams", label: "Teams", icon: Video, placeholder: "https://teams.microsoft.com/..." },
-] as const;
+const COUNTRY_CODES = [
+  { code: "+91", flag: "🇮🇳", label: "India (+91)" },
+  { code: "+1", flag: "🇺🇸", label: "US / Canada (+1)" },
+  { code: "+44", flag: "🇬🇧", label: "UK (+44)" },
+  { code: "+61", flag: "🇦🇺", label: "Australia (+61)" },
+  { code: "+971", flag: "🇦🇪", label: "UAE (+971)" },
+  { code: "+65", flag: "🇸🇬", label: "Singapore (+65)" },
+  { code: "+49", flag: "🇩🇪", label: "Germany (+49)" },
+];
 
 // ─── Slider Field ─────────────────────────────────────────────────────────────
 
@@ -82,812 +196,820 @@ function SliderField({
 }) {
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <Label className="text-xs text-muted-foreground">{label}</Label>
-        <span className="text-xs font-mono text-primary bg-primary/10 px-1.5 py-0.5 rounded">
-          {format(value)}
-        </span>
+      <div className="flex items-center justify-between text-xs">
+        <span className="text-muted-foreground">{label}</span>
+        <span className="font-mono font-medium text-foreground">{format(value)}</span>
       </div>
       <Slider
+        value={[value]}
+        onValueChange={([v]) => onChange(v)}
         min={min}
         max={max}
         step={step}
-        value={[value]}
-        onValueChange={([v]) => onChange(v)}
         className="w-full"
       />
     </div>
   );
 }
 
-// ─── Web Call Overlay ─────────────────────────────────────────────────────────
-
-function WebCallOverlay({
-  status,
-  agentTalking,
-  onStop,
-}: {
-  status: "connecting" | "active" | "ended";
-  agentTalking: boolean;
-  onStop: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/90 backdrop-blur-sm">
-      <div className="flex flex-col items-center gap-6 p-8 rounded-2xl border border-border bg-card shadow-2xl max-w-sm w-full mx-4">
-        {status === "connecting" && (
-          <>
-            <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
-              <Loader2 className="w-8 h-8 text-primary animate-spin" />
-            </div>
-            <div className="text-center">
-              <p className="font-semibold text-foreground">Connecting...</p>
-              <p className="text-sm text-muted-foreground mt-1">Setting up your web call</p>
-            </div>
-          </>
-        )}
-        {status === "active" && (
-          <>
-            <div className={cn(
-              "w-16 h-16 rounded-full flex items-center justify-center transition-all duration-300",
-              agentTalking
-                ? "bg-primary/20 ring-4 ring-primary/30 ring-offset-2 ring-offset-card"
-                : "bg-muted"
-            )}>
-              {agentTalking ? (
-                <Radio className="w-8 h-8 text-primary animate-pulse" />
-              ) : (
-                <Mic className="w-8 h-8 text-muted-foreground" />
-              )}
-            </div>
-            <div className="text-center">
-              <p className="font-semibold text-foreground">
-                {agentTalking ? "AI is speaking..." : "Listening..."}
-              </p>
-              <p className="text-sm text-muted-foreground mt-1">
-                {agentTalking
-                  ? "Speak to interrupt the AI at any time"
-                  : "Your turn — speak now"}
-              </p>
-            </div>
-            <Button
-              variant="destructive"
-              className="gap-2 w-full"
-              onClick={onStop}
-            >
-              <PhoneOff className="w-4 h-4" />
-              End Call
-            </Button>
-          </>
-        )}
-        {status === "ended" && (
-          <>
-            <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
-              <PhoneOff className="w-8 h-8 text-muted-foreground" />
-            </div>
-            <div className="text-center">
-              <p className="font-semibold text-foreground">Call Ended</p>
-              <p className="text-sm text-muted-foreground mt-1">Redirecting to call history...</p>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ─── Main Page ────────────────────────────────────────────────────────────────
+// ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function CallStudio() {
-  const { isAuthenticated } = useAuth();
-  const [, navigate] = useLocation();
+  const { user } = useAuth();
 
-  // Web call state
-  
-    const directVoice = useDirectVoiceSession();
-  const [webCallStatus, setWebCallStatus] = useState<"idle" | "connecting" | "active" | "ended">("idle");
-  const [liveKitToken, setLiveKitToken] = useState("");
-  const [agentTalking, setAgentTalking] = useState(false);
-  const [activeCallId, setActiveCallId] = useState<number | null>(null);
-  const activeCallIdRef = useRef<number | null>(null);
+  // Top-Level Mode: 'web' | 'phone'
+  const [studioMode, setStudioMode] = useState<"web" | "phone">("web");
 
-  // Call target
-  const [callType, setCallType] = useState<"web" | "phone" | "meet" | "zoom" | "teams">("web");
-  const [toNumber, setToNumber] = useState("");
-  const [meetingDialIn, setMeetingDialIn] = useState("");
-  const [meetingPin, setMeetingPin] = useState("");
-  const isWebCall = callType === "web";
-  const isMeetingType = callType !== "phone" && callType !== "web";
+  // Language Category Filter for Presets
+  const [langCategory, setLangCategory] = useState<"all" | "hindi" | "english" | "regional">("hindi");
 
-  // Voice selection
-  const [selectedVoiceId, setSelectedVoiceId] = useState("");
-  const [selectedVoiceName, setSelectedVoiceName] = useState("");
+  // Phone Call States
+  const [countryCode, setCountryCode] = useState("+91");
+  const [phoneNumber, setPhoneNumber] = useState("");
 
-  // Conversation params
+  // Active Call Configuration
+  const [selectedVoice, setSelectedVoice] = useState("Aanchal-hi");
+  const [selectedLanguage, setSelectedLanguage] = useState("hi-IN");
   const [tone, setTone] = useState<"professional" | "casual" | "friendly" | "formal" | "empathetic">("professional");
-  const [systemPrompt, setSystemPrompt] = useState("");
-  const [personality, setPersonality] = useState("");
-  const [language, setLanguage] = useState("en-US");
+  const [systemPrompt, setSystemPrompt] = useState(
+    "आप एक तेज़, स्वाभाविक और विनम्र भारतीय वॉयस कॉल सहायक हैं। केवल शुद्ध, सरल और बोलचाल की हिंदी में 1-2 छोटे वाक्यों में उत्तर दें। कभी भी मार्कडाउन, तारे (*), हैश (#), या बुलेट पॉइंट्स का प्रयोग न करें।"
+  );
   const [voiceSpeed, setVoiceSpeed] = useState(1.0);
+  const [voiceTemperature, setVoiceTemperature] = useState(1.0);
   const [responsiveness, setResponsiveness] = useState(0.9);
   const [interruptionSensitivity, setInterruptionSensitivity] = useState(0.9);
-  const [voiceTemperature, setVoiceTemperature] = useState(1.0);
 
-  // LLM
-  const [promptUseCase, setPromptUseCase] = useState("");
+  // Script Generator States (powered by local vLLM Gemma 4)
   const [scriptTopic, setScriptTopic] = useState("");
-  const [generatedScript, setGeneratedScript] = useState<{ speaker: string; text: string }[]>([]);
+  const [scriptLanguage, setScriptLanguage] = useState("Hindi");
+  const [scriptTurns, setScriptTurns] = useState(4);
+  const [generatedScriptText, setGeneratedScriptText] = useState("");
+  const [generatedScript, setGeneratedScript] = useState<Array<{ speaker: string; text: string }>>([]);
 
-  // Data
-  const { data: savedVoices = [] } = trpc.voices.listSaved.useQuery(undefined, { enabled: isAuthenticated });
-  const { data: premadeVoices = [] } = trpc.voices.listRetell.useQuery();
+  // Queries
+  const { data: rawPremadeVoices } = trpc.voices.listPremade.useQuery();
+  const { data: rawSavedVoices } = trpc.voices.listSaved.useQuery();
+  const { data: myAccess } = trpc.access.myStatus.useQuery();
 
-  // Clean up web call on unmount
-  
+  const premadeVoices = Array.isArray(rawPremadeVoices) ? rawPremadeVoices : [];
+  const savedVoices = Array.isArray(rawSavedVoices) ? rawSavedVoices : [];
 
-  const stopMutation = trpc.calls.stop.useMutation();
+  // Web Call Hook
+  const webCall = useDirectVoiceSession();
 
-  const stopWebCall = (userInitiated = true) => {
-    directVoice.stop();
-    const callId = activeCallIdRef.current;
-    if (callId) {
-      stopMutation.mutate({ callId });
-    }
-    setLiveKitToken("");
-    setAgentTalking(false);
-    setActiveCallId(null);
-    activeCallIdRef.current = null;
+  // Phone Call Hook (Twilio PSTN Bridge)
+  const phoneCall = usePhoneCallSession();
 
-    if (userInitiated) {
-      setWebCallStatus("ended");
-      setTimeout(() => {
-        setWebCallStatus("idle");
-        navigate("/calls");
-      }, 1500);
-    } else {
-      // Connection dropped — stay on Call Studio, show error
-      setWebCallStatus("idle");
-      toast.error("Call disconnected. Check your connection and try again.");
-    }
-  };
+  const webTranscripts = Array.isArray(webCall?.transcripts) ? webCall.transcripts : [];
+  const phoneTranscripts = Array.isArray(phoneCall?.transcripts) ? phoneCall.transcripts : [];
 
-  const initiateMutation = trpc.calls.initiate.useMutation({
-    onSuccess: async (data) => {
-      if (data.callType === "web" && data.accessToken) {
-        setActiveCallId(data.callId);
-        activeCallIdRef.current = data.callId;
-        setWebCallStatus("connecting");
-        setLiveKitToken(data.accessToken);
-        toast.success("Web call connecting...");
-      } else {
-        toast.success("Call initiated successfully!");
-        navigate("/calls");
-      }
-    },
-    onError: (e: { message: string }) => toast.error(e.message),
-  });
-
-  const suggestPromptMutation = trpc.llm.suggestPrompt.useMutation({
-    onSuccess: (data: { prompt: string }) => {
-      setSystemPrompt(data.prompt);
-      toast.success("System prompt generated!");
-    },
-    onError: (e: { message: string }) => toast.error(e.message),
-  });
-
+  // Local vLLM Script generator mutation
   const generateScriptMutation = trpc.llm.generateScript.useMutation({
-    onSuccess: (data: { script: string }) => {
-      // Parse the raw script text into speaker/text pairs
+    onSuccess: (data) => {
+      setGeneratedScriptText(data.script);
       const lines = data.script.split("\n").filter(Boolean);
-      const parsed = lines.map((line) => {
-        const match = line.match(/^(AI|Human|User|Caller):\s*(.+)$/i);
-        if (match) return { speaker: match[1] === "AI" ? "AI" : "Human", text: match[2] };
-        return { speaker: "AI", text: line };
-      });
+      const parsed = lines
+        .map((l: string) => {
+          const parts = l.split(/:(.*)/s);
+          if (parts.length >= 2) {
+            return { speaker: parts[0].replace(/[*_#]/g, "").trim(), text: parts[1].replace(/[*_#]/g, "").trim() };
+          }
+          return null;
+        })
+        .filter(Boolean) as Array<{ speaker: string; text: string }>;
+
       setGeneratedScript(parsed);
-      toast.success("Conversation script generated!");
+      toast.success("Script generated by local vLLM (Gemma 4)!");
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e) => toast.error(`vLLM Error: ${e.message}`),
   });
 
-  // Voice list: premade catalog + user saved/cloned voices
-  const premadeList = (premadeVoices as Array<{ voice_id: string; voice_name: string; provider: string; category: string }>).map(
-    (v, i) => ({ rowId: `premade-${i}`, id: v.voice_id, name: v.voice_name, badge: v.provider || v.category })
-  );
-  const savedList = (savedVoices as Array<{ id: number; retellVoiceId: string; name: string; category: string }>).map(
-    (v) => ({ rowId: `saved-${v.id}`, id: v.retellVoiceId, name: v.name, badge: v.category })
-  );
-  const allVoices = [...premadeList, ...savedList];
-
-  const callTypeConfig = CALL_TYPES.find((t) => t.value === callType)!;
-
-  const handleMeetingLinkChange = (value: string) => {
-    setToNumber(value);
-    if (value.includes("meet.google.com")) setCallType("meet");
-    else if (value.includes("zoom.us") || value.includes("zoom.com")) setCallType("zoom");
-    else if (value.includes("teams.microsoft.com") || value.includes("teams.live.com")) setCallType("teams");
+  // Apply Preset Handler
+  const handleApplyPreset = (p: PresetItem) => {
+    setSelectedVoice(p.voice);
+    setSelectedLanguage(p.language);
+    setTone(p.tone);
+    setSystemPrompt(p.prompt);
+    toast.success(`Applied preset "${p.label}" (${p.voice})`);
   };
 
-  const handleInitiateCall = () => {
-    if (isWebCall) {
-      setWebCallStatus("connecting");
-      directVoice.start({
-        voiceId: selectedVoiceId || "Kokoro-en",
-        language,
-        systemPrompt: systemPrompt || "You are a helpful, conversational voice assistant.",
-        onTalkingChange: (talking) => setAgentTalking(talking),
-        onError: () => stopWebCall(false),
-        onEnded: () => stopWebCall(true),
-      }).then(() => {
-        setWebCallStatus("active");
-        toast.success("Web call connected!");
-      }).catch((e) => {
-        toast.error(e.message || "Failed to connect");
-        stopWebCall(false);
+  // Switch Language Mode (Hindi vs English)
+  const handleSwitchLanguageMode = (mode: "hindi" | "english") => {
+    if (mode === "hindi") {
+      setLangCategory("hindi");
+      setSelectedVoice("Aanchal-hi");
+      setSelectedLanguage("hi-IN");
+      setSystemPrompt(
+        "आप एक तेज़, स्वाभाविक और विनम्र भारतीय वॉयस कॉल सहायक हैं। केवल शुद्ध, सरल और बोलचाल की हिंदी में 1-2 छोटे वाक्यों में उत्तर दें।"
+      );
+      toast.success("Switched to Hindi Mode (Aanchal · hi-IN)");
+    } else {
+      setLangCategory("english");
+      setSelectedVoice("af_bella");
+      setSelectedLanguage("en-US");
+      setSystemPrompt(
+        "You are a friendly, conversational, and direct voice assistant. Answer in 1-2 concise spoken sentences. Never use markdown formatting."
+      );
+      toast.success("Switched to English Mode (Bella · en-US)");
+    }
+  };
+
+  // Handle Web Call Start/Stop
+  const handleToggleWebCall = async () => {
+    if (webCall.isConnected) {
+      webCall.disconnect();
+    } else {
+      await webCall.connect({
+        targetVoice: selectedVoice,
+        systemPrompt,
       });
+    }
+  };
+
+  // Handle Phone Call Start
+  const handleStartPhoneCall = async () => {
+    const isApproved = user?.role === "admin" || myAccess?.apiAccess === "approved";
+    if (!isApproved) {
+      toast.error("Phone calling requires approved access. Please enter an invite code or request access in the sidebar.");
       return;
     }
-    if (isMeetingType) {
-      if (!meetingDialIn.trim()) { toast.error("Please enter the meeting dial-in phone number"); return; }
-      if (!meetingPin.trim()) { toast.error("Please enter the meeting PIN"); return; }
-    } else if (!isWebCall) {
-      if (!toNumber.trim()) { toast.error("Please enter a phone number"); return; }
+
+    const cleanNumber = (phoneNumber || "").replace(/[^0-9]/g, "");
+    if (!cleanNumber || cleanNumber.length < 7) {
+      toast.error("Please enter a valid mobile number");
+      return;
     }
-    if (!selectedVoiceId) { toast.error("Please select a voice from your library"); return; }
-
-    const effectiveNumber = isMeetingType ? meetingDialIn : toNumber;
-
-    initiateMutation.mutate({
-      toNumber: effectiveNumber,
-      callType,
-      meetingPin: isMeetingType ? meetingPin : undefined,
-      meetingLink: isMeetingType ? toNumber : undefined,
-      voiceId: selectedVoiceId,
-      voiceName: selectedVoiceName,
-      tone,
-      language,
-      systemPrompt: systemPrompt || undefined,
-      personality: personality || undefined,
-      voiceSpeed,
-      responsiveness,
-      interruptionSensitivity,
-      voiceTemperature,
+    const fullNumber = `${countryCode}${cleanNumber}`;
+    await phoneCall.startCall({
+      toNumber: fullNumber,
+      voiceId: selectedVoice,
+      systemPrompt,
     });
   };
 
-  if (!isAuthenticated) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full gap-4 text-center p-8">
-        <Phone className="w-12 h-12 text-muted-foreground" />
-        <h2 className="text-xl font-semibold">Sign in to access Call Studio</h2>
-        <Button onClick={() => (window.location.reload())}>Sign In</Button>
-      </div>
-    );
-  }
+  const isPhoneActive = ["INITIATING", "RINGING", "CONNECTED", "USER_SPEAKING", "AGENT_SPEAKING"].includes(phoneCall.status);
+
+  const formatDuration = (sec: number = 0) => {
+    const safeSec = Math.max(0, sec || 0);
+    const mins = String(Math.floor(safeSec / 60)).padStart(2, "0");
+    const s = String(safeSec % 60).padStart(2, "0");
+    return `${mins}:${s}`;
+  };
+
+  const filteredPresets = PRESETS.filter(
+    (p) => langCategory === "all" || p.category === langCategory
+  );
 
   return (
-    <div className="h-full flex flex-col overflow-auto">
-      
-      {webCallStatus !== "idle" && (
-        <WebCallOverlay
-          status={webCallStatus}
-          agentTalking={agentTalking}
-          onStop={() => stopWebCall(true)}
-        />
-      )}
-
-      {/* Header */}
-      <div className="px-6 py-5 border-b border-border shrink-0">
-        <h1 className="text-xl font-bold text-foreground">Call Studio</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">
-          Configure and initiate AI-powered voice calls via Retell AI
-        </p>
-      </div>
-
-      <div className="flex-1 overflow-auto p-6">
-        <div className="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-          {/* ─── Left column: Call target + Voice + Initiate ─────────────── */}
-          <div className="lg:col-span-1 space-y-4">
-
-            {/* Call Target */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <PhoneCall className="w-4 h-4 text-primary" />
-                  Call Target
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
-                  {CALL_TYPES.map(({ value, label, icon: Icon }) => (
-                    <button
-                      key={value}
-                      onClick={() => setCallType(value)}
-                      className={cn(
-                        "flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-all border",
-                        callType === value
-                          ? "bg-primary/15 text-primary border-primary/30"
-                          : "bg-muted/50 text-muted-foreground border-transparent hover:border-border"
-                      )}
-                    >
-                      <Icon className="w-3.5 h-3.5 shrink-0" />
-                      {label}
-                    </button>
-                  ))}
-                </div>
-
-                {isWebCall ? (
-                  <div className="flex gap-2 p-3 rounded-lg bg-primary/5 border border-primary/20 text-xs text-primary">
-                    <Globe className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                    <span>Web call runs directly in your browser — no phone number needed. Microphone access required.</span>
-                  </div>
-                ) : isMeetingType ? (
-                  <div className="space-y-3">
-                    <div className="space-y-1.5">
-                      <Label className="text-xs text-muted-foreground">Meeting Link (optional)</Label>
-                      <Input
-                        placeholder={callTypeConfig.placeholder}
-                        value={toNumber}
-                        onChange={(e) => handleMeetingLinkChange(e.target.value)}
-                        className="text-sm"
-                      />
-                      <p className="text-xs text-muted-foreground/60">Paste a Meet/Zoom/Teams link — type auto-detected.</p>
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs text-muted-foreground">
-                        Dial-in Phone Number <span className="text-destructive">*</span>
-                      </Label>
-                      <Input
-                        placeholder="+1 (xxx) xxx-xxxx"
-                        value={meetingDialIn}
-                        onChange={(e) => setMeetingDialIn(e.target.value)}
-                        className="text-sm"
-                      />
-                      <p className="text-xs text-muted-foreground/60">The phone number listed in your meeting invite.</p>
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs text-muted-foreground">
-                        Meeting PIN <span className="text-destructive">*</span>
-                      </Label>
-                      <Input
-                        placeholder="123456789"
-                        value={meetingPin}
-                        onChange={(e) => setMeetingPin(e.target.value.replace(/[^0-9*#]/g, ""))}
-                        className="text-sm font-mono"
-                      />
-                      <p className="text-xs text-muted-foreground/60">Digits only — entered automatically after connecting.</p>
-                    </div>
-                    <div className="flex gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-400">
-                      <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                      <span>Find the dial-in number and PIN in your meeting invite under <strong>Join by phone</strong>.</span>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-1.5">
-                    <Label className="text-xs text-muted-foreground">Phone Number</Label>
-                    <Input
-                      placeholder="+1 (555) 000-0000"
-                      value={toNumber}
-                      onChange={(e) => setToNumber(e.target.value)}
-                      className="text-sm"
-                    />
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Voice Selection */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <Mic className="w-4 h-4 text-primary" />
-                  Voice
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <Select
-                  value={selectedVoiceId}
-                  onValueChange={(v) => {
-                    setSelectedVoiceId(v);
-                    const found = allVoices.find((voice) => voice.id === v);
-                    setSelectedVoiceName(found?.name || "");
-                  }}
-                >
-                  <SelectTrigger className="text-sm">
-                    <SelectValue placeholder="Select a voice..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {allVoices.map((v) => (
-                      <SelectItem key={v.rowId} value={v.id}>
-                        <div className="flex items-center gap-2">
-                          <span>{v.name}</span>
-                          <Badge variant="secondary" className="text-xs capitalize">{v.badge}</Badge>
-                        </div>
-                      </SelectItem>
-                    ))}
-                    {allVoices.length === 0 && (
-                      <div className="px-3 py-2 text-xs text-muted-foreground">
-                        No voices saved. Go to Voice Library to save voices first.
-                      </div>
-                    )}
-                  </SelectContent>
-                </Select>
-                {allVoices.length === 0 && (
-                  <p className="text-xs text-muted-foreground/60">
-                    Save voices in the Voice Library to use them here.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Initiate Call */}
-            <Button
-              className="w-full gap-2 h-11 text-sm font-medium"
-              onClick={handleInitiateCall}
-              disabled={initiateMutation.isPending}
-            >
-              {initiateMutation.isPending ? (
-                <><Loader2 className="w-4 h-4 animate-spin" />
-                  {isWebCall ? "Starting Web Call..." : "Initiating Call..."}
-                </>
-              ) : (
-                <>{isWebCall ? <Globe className="w-4 h-4" /> : <Phone className="w-4 h-4" />}
-                  {isWebCall ? "Start Web Call" : "Initiate Call"}
-                </>
-              )}
-            </Button>
-            <div className="flex gap-2 p-3 rounded-lg bg-muted/50 text-xs text-muted-foreground">
-              <Info className="w-3.5 h-3.5 shrink-0 mt-0.5 text-primary" />
-              <span>
-                {isWebCall
-                  ? "Web calls run in your browser with real-time interruption. The AI will stop speaking immediately when you speak."
-                  : "Ensure your Retell AI API key and phone number are configured in Settings before initiating a call."}
-              </span>
-            </div>
+    <div className="h-full flex flex-col overflow-hidden bg-background">
+      {/* ─── Top Header & Mode Selector ─────────────────────────────────────── */}
+      <div className="px-6 py-3 border-b border-border flex items-center justify-between shrink-0 bg-card/40 backdrop-blur">
+        <div className="flex items-center gap-4">
+          <div>
+            <h1 className="text-base font-bold text-foreground flex items-center gap-2">
+              <Radio className="w-4 h-4 text-primary animate-pulse" />
+              Samvad Call Studio
+            </h1>
+            <p className="text-[11px] text-muted-foreground">
+              Conversational AI engine with zero-shot Indic & Global voice synthesis
+            </p>
           </div>
 
-          {/* ─── Right columns: Parameters ───────────────────────────────── */}
-          <div className="lg:col-span-2">
-            <Tabs defaultValue="conversation">
-              <TabsList className="w-full grid grid-cols-3 mb-4">
-                <TabsTrigger value="conversation" className="text-xs gap-1.5">
-                  <MessageSquare className="w-3.5 h-3.5" />
-                  Conversation
-                </TabsTrigger>
-                <TabsTrigger value="voice" className="text-xs gap-1.5">
-                  <Volume2 className="w-3.5 h-3.5" />
-                  Voice Params
-                </TabsTrigger>
-                <TabsTrigger value="ai" className="text-xs gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5" />
-                  AI Tools
-                </TabsTrigger>
-              </TabsList>
+          {/* Quick Language Toggle */}
+          <div className="hidden sm:flex items-center bg-muted/40 p-0.5 rounded-lg border border-border/40 text-xs">
+            <button
+              onClick={() => handleSwitchLanguageMode("hindi")}
+              className={cn(
+                "px-2.5 py-1 rounded text-xs font-medium transition-all flex items-center gap-1",
+                selectedLanguage.startsWith("hi")
+                  ? "bg-primary/20 text-primary border border-primary/30"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              🇮🇳 Hindi Default
+            </button>
+            <button
+              onClick={() => handleSwitchLanguageMode("english")}
+              className={cn(
+                "px-2.5 py-1 rounded text-xs font-medium transition-all flex items-center gap-1",
+                selectedLanguage.startsWith("en")
+                  ? "bg-primary/20 text-primary border border-primary/30"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              🌐 English Default
+            </button>
+          </div>
+        </div>
 
-              {/* ─── Conversation ─────────────────────────────────────────── */}
-              <TabsContent value="conversation" className="space-y-4">
-                {/* Tone */}
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-sm flex items-center gap-2">
-                      <Settings2 className="w-4 h-4 text-primary" />
-                      Conversation Style
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="space-y-2">
-                      <Label className="text-xs text-muted-foreground">Conversation Tone</Label>
-                      <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
-                        {TONES.map(({ value, label }) => (
-                          <button
-                            key={value}
-                            onClick={() => setTone(value)}
+        {/* Dual Mode Switcher: Web vs Phone */}
+        <div className="flex items-center bg-muted/60 p-1 rounded-lg border border-border/50">
+          <button
+            onClick={() => setStudioMode("web")}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold transition-all",
+              studioMode === "web"
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <Globe className="w-3.5 h-3.5" />
+            Web Call (Mic)
+          </button>
+          <button
+            onClick={() => setStudioMode("phone")}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold transition-all",
+              studioMode === "phone"
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <Phone className="w-3.5 h-3.5" />
+            Phone Call (Twilio PSTN)
+            <span className="px-1.5 py-0.2 bg-emerald-500/20 text-emerald-400 rounded text-[10px]">LIVE</span>
+          </button>
+        </div>
+      </div>
+
+      {/* ─── Main Content Grid ─────────────────────────────────────────────── */}
+      <div className="flex-1 overflow-hidden grid grid-cols-1 lg:grid-cols-12">
+        {/* Left: Call Controls & Live Monitor (7 Cols) */}
+        <div className="lg:col-span-7 flex flex-col border-r border-border overflow-auto p-6 space-y-6">
+          {studioMode === "phone" ? (
+            /* ─── PHONE CALL MODE ───────────────────────────────────────────── */
+            <div className="space-y-6">
+              {/* Dialer Card */}
+              <Card className="border-primary/20 bg-card/60 shadow-md">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm font-semibold flex items-center justify-between">
+                    <span className="flex items-center gap-2">
+                      <PhoneCall className="w-4 h-4 text-primary" />
+                      Direct Outbound Phone Dialer
+                    </span>
+                    <Badge variant="outline" className="text-xs text-muted-foreground font-mono">
+                      Caller ID: +1 (989) 589-8371
+                    </Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex gap-2">
+                    <Select value={countryCode} onValueChange={setCountryCode}>
+                      <SelectTrigger className="w-[140px] text-xs h-10 shrink-0">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {COUNTRY_CODES.map((c) => (
+                          <SelectItem key={c.code} value={c.code} className="text-xs">
+                            {c.flag} {c.code}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      type="tel"
+                      placeholder="98765 43210"
+                      value={phoneNumber}
+                      onChange={(e) => setPhoneNumber(e.target.value)}
+                      disabled={isPhoneActive}
+                      className="text-sm h-10 font-mono tracking-wider flex-1"
+                    />
+                    {isPhoneActive ? (
+                      <Button
+                        onClick={phoneCall.endCall}
+                        variant="destructive"
+                        className="h-10 px-5 gap-2 font-semibold text-xs shadow-lg animate-pulse"
+                      >
+                        <PhoneOff className="w-4 h-4" />
+                        End Call
+                      </Button>
+                    ) : (
+                      <Button
+                        onClick={handleStartPhoneCall}
+                        className="h-10 px-5 gap-2 font-semibold text-xs shadow-md bg-emerald-600 hover:bg-emerald-500 text-white"
+                      >
+                        <PhoneCall className="w-4 h-4" />
+                        Call Now
+                      </Button>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Twilio immediately dials this phone number and bridges real-time audio with Voice: <span className="font-semibold text-primary">{selectedVoice}</span> ({selectedLanguage}).
+                  </p>
+                </CardContent>
+              </Card>
+
+              {/* Phone Call Monitor Card */}
+              <Card className="border-border/60 bg-card/40 flex-1 flex flex-col">
+                <CardHeader className="pb-3 border-b border-border/40">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={cn(
+                          "px-2.5 py-1 rounded-full text-xs font-semibold flex items-center gap-1.5",
+                          phoneCall.status === "CONNECTED"
+                            ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
+                            : phoneCall.status === "USER_SPEAKING"
+                            ? "bg-purple-500/15 text-purple-400 border border-purple-500/30"
+                            : phoneCall.status === "AGENT_SPEAKING"
+                            ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
+                            : phoneCall.status === "RINGING"
+                            ? "bg-amber-500/15 text-amber-400 border border-amber-500/30 animate-pulse"
+                            : phoneCall.status === "INITIATING"
+                            ? "bg-blue-500/15 text-blue-400 border border-blue-500/30"
+                            : "bg-muted text-muted-foreground"
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "w-2 h-2 rounded-full",
+                            isPhoneActive ? "bg-emerald-400 animate-ping" : "bg-muted-foreground"
+                          )}
+                        />
+                        {phoneCall.status === "USER_SPEAKING"
+                          ? "CALLER SPEAKING"
+                          : phoneCall.status === "AGENT_SPEAKING"
+                          ? "AGENT SPEAKING"
+                          : phoneCall.status}
+                      </div>
+
+                      <span className="text-xs font-mono text-muted-foreground">
+                        ⏱️ {formatDuration(phoneCall.callSeconds)}
+                      </span>
+                      <span className="text-xs font-mono text-muted-foreground">
+                        ⚡ {phoneCall.rttMs}ms RTT
+                      </span>
+                    </div>
+
+                    {/* Listen In Toggle */}
+                    <div className="flex items-center gap-2">
+                      <Headphones className="w-3.5 h-3.5 text-muted-foreground" />
+                      <Label htmlFor="listen-in" className="text-xs text-muted-foreground cursor-pointer">
+                        Listen In (Browser)
+                      </Label>
+                      <Switch
+                        id="listen-in"
+                        checked={phoneCall.listenIn}
+                        onCheckedChange={phoneCall.setListenIn}
+                      />
+                    </div>
+                  </div>
+                </CardHeader>
+
+                <CardContent className="p-4 space-y-4">
+                  {/* Waveform Visualizer Canvas */}
+                  <div className="w-full bg-black/40 rounded-lg p-2 border border-border/40 overflow-hidden relative">
+                    <canvas
+                      ref={phoneCall.canvasRef as any}
+                      width={600}
+                      height={60}
+                      className="w-full h-[60px] block"
+                    />
+                    {phoneCall.interrupted && (
+                      <div className="absolute inset-0 bg-purple-500/20 flex items-center justify-center text-xs font-bold text-purple-300 animate-pulse">
+                        ⚡ Caller Interrupted (Barge-In)
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Realtime Transcripts List */}
+                  <div className="space-y-2 max-h-[320px] min-h-[180px] overflow-auto rounded-lg border border-border/30 p-3 bg-muted/20">
+                    {phoneTranscripts.length === 0 ? (
+                      <div className="text-center py-10 text-muted-foreground/60 text-xs">
+                        <Activity className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                        <p>Waiting for connection...</p>
+                        <p className="text-[11px] mt-1">Live transcripts will stream here in real time as the conversation happens.</p>
+                      </div>
+                    ) : (
+                      phoneTranscripts.map((t) => (
+                        <div
+                          key={t.id}
+                          className={cn(
+                            "flex gap-2.5 text-xs",
+                            t.role === "agent" ? "flex-row" : "flex-row-reverse"
+                          )}
+                        >
+                          <div
                             className={cn(
-                              "px-3 py-2 rounded-lg text-xs font-medium transition-all border text-left",
-                              tone === value
-                                ? "bg-primary/15 text-primary border-primary/30"
-                                : "bg-muted/50 text-muted-foreground border-transparent hover:border-border"
+                              "w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[10px]",
+                              t.role === "agent" ? "bg-emerald-500/20 text-emerald-400" : "bg-purple-500/20 text-purple-400"
                             )}
                           >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs text-muted-foreground">Personality Traits</Label>
-                      <Input
-                        placeholder="e.g. 'Confident, concise, uses simple language'"
-                        value={personality}
-                        onChange={(e) => setPersonality(e.target.value)}
-                        className="text-sm"
-                      />
-                    </div>
-                  </CardContent>
-                </Card>
+                            {t.role === "agent" ? <Bot className="w-3.5 h-3.5" /> : <User className="w-3.5 h-3.5" />}
+                          </div>
+                          <div
+                            className={cn(
+                              "max-w-[80%] rounded-lg p-2.5 leading-relaxed text-xs",
+                              t.role === "agent"
+                                ? "bg-muted/80 text-foreground border border-border/40"
+                                : "bg-purple-500/15 text-purple-200 border border-purple-500/30"
+                            )}
+                          >
+                            <p>{t.text}</p>
+                            <span className="text-[9px] text-muted-foreground mt-1 block">
+                              {new Date(t.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                            </span>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          ) : (
+            /* ─── WEB CALL MODE ─────────────────────────────────────────────── */
+            <div className="flex flex-col items-center justify-center flex-1 space-y-6">
+              {/* Visual Orb */}
+              <div className="relative flex items-center justify-center">
+                <div
+                  className={cn(
+                    "w-44 h-44 rounded-full transition-all duration-700 flex items-center justify-center shadow-2xl relative",
+                    webCall.isConnected
+                      ? webCall.isUserSpeaking
+                        ? "bg-purple-500/20 border-2 border-purple-400 shadow-purple-500/30 scale-105"
+                        : webCall.isAgentSpeaking
+                        ? "bg-emerald-500/20 border-2 border-emerald-400 shadow-emerald-500/30 scale-105"
+                        : "bg-primary/20 border-2 border-primary shadow-primary/30"
+                      : "bg-muted/30 border border-border"
+                  )}
+                >
+                  <div
+                    className={cn(
+                      "w-24 h-24 rounded-full transition-all duration-300 flex items-center justify-center",
+                      webCall.isConnected
+                        ? webCall.isUserSpeaking
+                          ? "bg-purple-500 text-white animate-pulse"
+                          : webCall.isAgentSpeaking
+                          ? "bg-emerald-500 text-white animate-pulse"
+                          : "bg-primary text-primary-foreground"
+                        : "bg-muted text-muted-foreground"
+                    )}
+                  >
+                    <Mic className="w-10 h-10" />
+                  </div>
+                </div>
+              </div>
 
-                {/* Language */}
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-sm flex items-center gap-2">
-                      🌐 Language & Region
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <div className="space-y-1.5">
-                      <Label className="text-xs text-muted-foreground">Call Language</Label>
-                      <Select value={language} onValueChange={setLanguage}>
-                        <SelectTrigger className="text-sm">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <div className="px-2 py-1 text-xs font-semibold text-muted-foreground uppercase tracking-wide">🇮🇳 Indian Languages</div>
-                          {INDIAN_LANGUAGES.map((lang) => (
-                            <SelectItem key={lang.code} value={lang.code}>
-                              <span className="font-medium">{lang.label}</span>
-                              {lang.nativeLabel && (
-                                <span className="text-muted-foreground text-xs"> ({lang.nativeLabel})</span>
-                              )}
-                            </SelectItem>
-                          ))}
-                          <div className="px-2 py-1 text-xs font-semibold text-muted-foreground uppercase tracking-wide mt-1">🌍 Global Languages</div>
-                          {GLOBAL_LANGUAGES.map((lang) => (
-                            <SelectItem key={lang.code} value={lang.code}>
-                              <span className="font-medium">{lang.label}</span>
-                              {lang.nativeLabel && (
-                                <span className="text-muted-foreground text-xs"> ({lang.nativeLabel})</span>
-                              )}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      {MULTILINGUAL_ONLY_CODES.includes(language) && (
-                        <p className="text-xs text-amber-400 flex items-start gap-1.5 mt-1">
-                          <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-                          This language uses Retell's multilingual auto-detect mode. Voice quality may vary. Ensure your selected voice supports this language.
-                        </p>
+              {/* Status & Telemetry */}
+              <div className="text-center space-y-1">
+                <p className="text-sm font-semibold">
+                  {webCall.isConnected
+                    ? webCall.isUserSpeaking
+                      ? "Listening to you..."
+                      : webCall.isAgentSpeaking
+                      ? "AI is speaking..."
+                      : "Connected & ready"
+                    : `Ready with ${selectedVoice} (${selectedLanguage})`}
+                </p>
+                {webCall.isConnected && (
+                  <div className="flex items-center justify-center gap-3 text-xs text-muted-foreground font-mono">
+                    <span>⏱️ {formatDuration(webCall.callSeconds)}</span>
+                    <span>⚡ 120ms RTT</span>
+                  </div>
+                )}
+              </div>
+
+              {/* CTA Button */}
+              <Button
+                size="lg"
+                onClick={handleToggleWebCall}
+                disabled={webCall.isConnecting}
+                className={cn(
+                  "h-12 px-8 font-semibold gap-2 shadow-lg transition-all",
+                  webCall.isConnected
+                    ? "bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+                    : "bg-primary hover:bg-primary/90"
+                )}
+              >
+                {webCall.isConnecting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Connecting...
+                  </>
+                ) : webCall.isConnected ? (
+                  <>
+                    <PhoneOff className="w-4 h-4" />
+                    End Web Session
+                  </>
+                ) : (
+                  <>
+                    <PhoneCall className="w-4 h-4" />
+                    Start Web Conversation
+                  </>
+                )}
+              </Button>
+
+              {/* Web Call Transcripts Preview */}
+              {webTranscripts.length > 0 && (
+                <div className="w-full space-y-2 max-h-48 overflow-auto rounded-lg border border-border p-3 bg-muted/20 text-xs">
+                  {webTranscripts.slice(-6).map((t) => (
+                    <div
+                      key={t.id}
+                      className={cn(
+                        "flex gap-2 text-xs",
+                        t.role === "agent" ? "text-emerald-400" : "text-purple-300"
                       )}
+                    >
+                      <span className="font-semibold">{t.role === "agent" ? "AI:" : "You:"}</span>
+                      <span>{t.text}</span>
                     </div>
-                    {/* Indian Language Quick Presets */}
-                    {LANGUAGE_MAP[language]?.isIndian && (
-                      <div className="space-y-2">
-                        <Label className="text-xs text-muted-foreground">Quick Presets for Indian Telecalling</Label>
-                        <div className="grid grid-cols-2 gap-2">
-                          {INDIAN_PRESETS.filter(p => p.language === language || (language === "en-US" && p.language === "en-IN")).map((preset) => (
-                            <button
-                              key={preset.label}
-                              onClick={() => {
-                                setLanguage(preset.language);
-                                setTone(preset.tone);
-                                setSystemPrompt(preset.prompt);
-                              }}
-                              className="flex flex-col gap-0.5 px-3 py-2.5 rounded-lg text-left text-xs transition-all border bg-muted/50 text-muted-foreground border-transparent hover:border-primary/30 hover:bg-primary/10 hover:text-primary"
-                            >
-                              <span className="font-medium">{preset.label}</span>
-                              <span className="text-xs opacity-60 capitalize">{preset.tone}</span>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    {/* Show all Indian presets if no Indian language selected */}
-                    {!LANGUAGE_MAP[language]?.isIndian && (
-                      <div className="space-y-2">
-                        <Label className="text-xs text-muted-foreground">Indian Telecalling Presets</Label>
-                        <div className="grid grid-cols-2 gap-2">
-                          {INDIAN_PRESETS.map((preset) => (
-                            <button
-                              key={preset.label}
-                              onClick={() => {
-                                setLanguage(preset.language);
-                                setTone(preset.tone);
-                                setSystemPrompt(preset.prompt);
-                              }}
-                              className="flex flex-col gap-0.5 px-3 py-2.5 rounded-lg text-left text-xs transition-all border bg-muted/50 text-muted-foreground border-transparent hover:border-primary/30 hover:bg-primary/10 hover:text-primary"
-                            >
-                              <span className="font-medium">{preset.label}</span>
-                              <span className="text-xs opacity-60">{LANGUAGE_MAP[preset.language]?.label} · {preset.tone}</span>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
-                {/* ─── System Prompt Card ─────────────────────────────────── */}
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-sm">System Prompt</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <Textarea
-                      placeholder="Define how the AI should behave during the call. e.g. 'You are a professional sales representative for Acme Corp...'"
-                      value={systemPrompt}
-                      onChange={(e) => setSystemPrompt(e.target.value)}
-                      rows={5}
-                      className="text-sm resize-none"
-                    />
-                    <div className="flex items-center gap-2">
-                      <Input
-                        placeholder="Use case (e.g. 'sales demo call')"
-                        value={promptUseCase}
-                        onChange={(e) => setPromptUseCase(e.target.value)}
-                        className="text-sm h-8 flex-1"
-                      />
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => suggestPromptMutation.mutate({ useCase: promptUseCase, tone, personality })}
-                        disabled={suggestPromptMutation.isPending || !promptUseCase}
-                        className="gap-1.5 h-8 text-xs shrink-0"
-                      >
-                        {suggestPromptMutation.isPending ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                          <Sparkles className="w-3.5 h-3.5" />
-                        )}
-                        AI Suggest
-                      </Button>
+        {/* Right: Configuration Sidebar & Presets (5 Cols) */}
+        <div className="lg:col-span-5 flex flex-col overflow-auto p-6 space-y-6 bg-card/20">
+          <Tabs defaultValue="presets" className="w-full">
+            <TabsList className="grid grid-cols-3 w-full mb-4">
+              <TabsTrigger value="presets" className="text-xs">Presets</TabsTrigger>
+              <TabsTrigger value="voice" className="text-xs">Voice & Lang</TabsTrigger>
+              <TabsTrigger value="script" className="text-xs">AI Script (vLLM)</TabsTrigger>
+            </TabsList>
+
+            {/* ─── TAB 1: PRESETS ────────────────────────────────────────────── */}
+            <TabsContent value="presets" className="space-y-4">
+              {/* Category Filter Pills */}
+              <div className="flex gap-1.5 overflow-x-auto pb-1">
+                {[
+                  { key: "hindi", label: "🇮🇳 Hindi Defaults" },
+                  { key: "english", label: "🌐 English Defaults" },
+                  { key: "regional", label: "🗺️ Indic Regional" },
+                  { key: "all", label: "✨ All" },
+                ].map((cat) => (
+                  <button
+                    key={cat.key}
+                    onClick={() => setLangCategory(cat.key as any)}
+                    className={cn(
+                      "px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap transition-all border",
+                      langCategory === cat.key
+                        ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                        : "bg-muted/40 text-muted-foreground border-border/50 hover:text-foreground"
+                    )}
+                  >
+                    {cat.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Presets List */}
+              <div className="grid grid-cols-1 gap-2.5">
+                {filteredPresets.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => handleApplyPreset(p)}
+                    className={cn(
+                      "p-3 rounded-lg border text-left space-y-1.5 transition-all group",
+                      selectedVoice === p.voice && selectedLanguage === p.language
+                        ? "border-primary bg-primary/10 shadow-sm"
+                        : "border-border/60 bg-card/50 hover:bg-card hover:border-primary/40"
+                    )}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-foreground group-hover:text-primary">
+                        {p.label}
+                      </span>
+                      <Badge variant="outline" className="text-[10px] font-mono">
+                        {p.badge}
+                      </Badge>
                     </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
+                    <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed">
+                      {p.prompt}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            </TabsContent>
 
-              {/* ─── Voice Parameters ─────────────────────────────────────── */}
-              <TabsContent value="voice" className="space-y-4">
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-sm flex items-center gap-2">
-                      <Settings2 className="w-4 h-4 text-primary" />
-                      Retell AI Voice Settings
+            {/* ─── TAB 2: VOICE & LANGUAGE ───────────────────────────────────── */}
+            <TabsContent value="voice" className="space-y-4">
+              <div className="space-y-3.5">
+                {/* Voice Persona Dropdown */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold">Voice Persona</Label>
+                  <Select value={selectedVoice} onValueChange={setSelectedVoice}>
+                    <SelectTrigger className="text-xs h-9">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {/* Indic Voices */}
+                      <SelectItem value="Aanchal-hi">🇮🇳 Aanchal (Hindi Female - Expressive & Natural)</SelectItem>
+                      <SelectItem value="Rohit-hi">🇮🇳 Rohit (Hindi Male - Clear & Balanced)</SelectItem>
+                      <SelectItem value="ananya">🇮🇳 Ananya (Indic Multilingual Female)</SelectItem>
+                      <SelectItem value="default_indic">🇮🇳 Aarav (Indic Multilingual Male)</SelectItem>
+                      <SelectItem value="Chhavi-hi">🇮🇳 Chhavi (Hindi Female - Warm)</SelectItem>
+                      <SelectItem value="Divya-hi">🇮🇳 Divya (Hindi Female - Professional)</SelectItem>
+                      <SelectItem value="Amol-hi">🇮🇳 Amol (Hindi Male - Energetic)</SelectItem>
+
+                      {/* Custom Cloned */}
+                      {savedVoices
+                        .filter((v) => v && v.category === "cloned")
+                        .map((v) => (
+                          <SelectItem key={v.id} value={v.voiceId || v.retellVoiceId || String(v.id)}>
+                            🎙️ {v.name} (Custom Cloned)
+                          </SelectItem>
+                        ))}
+
+                      {/* English Voices */}
+                      <SelectItem value="af_bella">✨ Bella (English US Female - Cheerful & Crisp)</SelectItem>
+                      <SelectItem value="am_adam">✨ Adam (English US Male - Deep & Confident)</SelectItem>
+                      <SelectItem value="af_heart">✨ Heart (English US Female - Warm)</SelectItem>
+                      <SelectItem value="bf_emma">🇬🇧 Emma (English UK Female - Articulate)</SelectItem>
+                      <SelectItem value="bm_george">🇬🇧 George (English UK Male - Authoritative)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Language Mode Dropdown */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold">Language Mode</Label>
+                  <Select value={selectedLanguage} onValueChange={setSelectedLanguage}>
+                    <SelectTrigger className="text-xs h-9">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {INDIAN_LANGUAGES.map((l) => (
+                        <SelectItem key={l.code} value={l.code} className="text-xs">
+                          {l.flag} {l.label} ({l.nativeLabel})
+                        </SelectItem>
+                      ))}
+                      {GLOBAL_LANGUAGES.slice(0, 5).map((l) => (
+                        <SelectItem key={l.code} value={l.code} className="text-xs">
+                          {l.flag} {l.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Agent System Prompt */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold">Agent System Prompt</Label>
+                  <Textarea
+                    rows={5}
+                    value={systemPrompt}
+                    onChange={(e) => setSystemPrompt(e.target.value)}
+                    className="text-xs font-mono leading-relaxed"
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    This prompt guides Gemma 4 LLM on each conversational turn.
+                  </p>
+                </div>
+
+                {/* Speech Sliders */}
+                <Card className="border-border/60 bg-card/40">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-xs font-semibold flex items-center gap-1.5">
+                      <Settings2 className="w-3.5 h-3.5 text-primary" />
+                      Speech Tuning
                     </CardTitle>
                   </CardHeader>
-                  <CardContent className="space-y-5">
-                    <SliderField
-                      label="Voice Temperature"
-                      value={voiceTemperature}
-                      onChange={setVoiceTemperature}
-                      min={0}
-                      max={2}
-                      step={0.05}
-                      format={(v) => v.toFixed(2)}
-                    />
+                  <CardContent className="space-y-3">
                     <SliderField
                       label="Voice Speed"
                       value={voiceSpeed}
                       onChange={setVoiceSpeed}
                       min={0.5}
-                      max={2.0}
-                      step={0.1}
-                      format={(v) => `${v.toFixed(1)}x`}
+                      max={1.5}
+                      step={0.05}
+                      format={(v) => `${v.toFixed(2)}x`}
                     />
                     <SliderField
-                      label="Responsiveness"
-                      value={responsiveness}
-                      onChange={setResponsiveness}
-                      min={0}
-                      max={1}
+                      label="Voice Temperature"
+                      value={voiceTemperature}
+                      onChange={setVoiceTemperature}
+                      min={0.1}
+                      max={1.5}
                       step={0.05}
-                      format={(v) => `${Math.round(v * 100)}%`}
+                      format={(v) => v.toFixed(2)}
                     />
-                    <SliderField
-                      label="Interruption Sensitivity"
-                      value={interruptionSensitivity}
-                      onChange={setInterruptionSensitivity}
-                      min={0}
-                      max={1}
-                      step={0.05}
-                      format={(v) => `${Math.round(v * 100)}%`}
-                    />
-                    <div className="flex gap-2 p-3 rounded-lg bg-muted/50 text-xs text-muted-foreground">
-                      <Info className="w-3.5 h-3.5 shrink-0 mt-0.5 text-primary" />
-                      <span>Higher interruption sensitivity means the AI stops speaking more easily when you speak. Set to 100% for maximum responsiveness.</span>
-                    </div>
                   </CardContent>
                 </Card>
-              </TabsContent>
+              </div>
+            </TabsContent>
 
-              {/* ─── AI Tools ─────────────────────────────────────────────── */}
-              <TabsContent value="ai" className="space-y-4">
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-sm flex items-center gap-2">
-                      <Sparkles className="w-4 h-4 text-primary" />
-                      Conversation Script Generator
+            {/* ─── TAB 3: AI SCRIPT GENERATOR (vLLM GEMMA 4) ──────────────────── */}
+            <TabsContent value="script" className="space-y-4">
+              <Card className="border-border/60 bg-card/40">
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-xs font-semibold flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-primary" />
+                      AI Script Generator
                     </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <p className="text-xs text-muted-foreground">
-                      Generate a sample conversation script to preview how the AI will interact during the call.
-                    </p>
-                    <div className="flex gap-2">
-                      <Input
-                        placeholder="Topic (e.g. 'product onboarding')"
-                        value={scriptTopic}
-                        onChange={(e) => setScriptTopic(e.target.value)}
-                        className="text-sm h-8 flex-1"
-                      />
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => generateScriptMutation.mutate({ scenario: scriptTopic, tone, turns: 6 })}
-                        disabled={generateScriptMutation.isPending || !scriptTopic}
-                        className="gap-1.5 h-8 text-xs shrink-0"
-                      >
-                        {generateScriptMutation.isPending ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                          <Zap className="w-3.5 h-3.5" />
-                        )}
-                        Generate
-                      </Button>
+                    <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/20">
+                      ⚡ Local vLLM (Gemma 4 AWQ)
+                    </Badge>
+                  </div>
+                  <CardDescription className="text-[11px]">
+                    Generate realistic multi-turn voice scripts with zero OpenAI API keys.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3 text-xs">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Scenario / Topic</Label>
+                    <Input
+                      placeholder="e.g. 'EdTech sales call selling coding courses'"
+                      value={scriptTopic}
+                      onChange={(e) => setScriptTopic(e.target.value)}
+                      className="text-xs h-8"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Language</Label>
+                      <Select value={scriptLanguage} onValueChange={setScriptLanguage}>
+                        <SelectTrigger className="text-xs h-8">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Hindi">🇮🇳 Hindi</SelectItem>
+                          <SelectItem value="Hinglish">🇮🇳 Hinglish</SelectItem>
+                          <SelectItem value="English">🌐 English</SelectItem>
+                          <SelectItem value="Tamil">🇮🇳 Tamil</SelectItem>
+                          <SelectItem value="Telugu">🇮🇳 Telugu</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
 
-                    {generatedScript.length > 0 && (
-                      <div className="space-y-2 max-h-64 overflow-auto rounded-lg border border-border p-3">
-                        {generatedScript.map((line, i) => (
-                          <div
-                            key={i}
-                            className={cn(
-                              "flex gap-2 text-xs",
-                              line.speaker === "AI" ? "flex-row" : "flex-row-reverse"
-                            )}
-                          >
-                            <span
-                              className={cn(
-                                "shrink-0 px-1.5 py-0.5 rounded text-xs font-medium",
-                                line.speaker === "AI"
-                                  ? "bg-primary/15 text-primary"
-                                  : "bg-muted text-muted-foreground"
-                              )}
-                            >
-                              {line.speaker}
-                            </span>
-                            <p className="text-muted-foreground leading-relaxed">{line.text}</p>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Turns</Label>
+                      <Select value={String(scriptTurns)} onValueChange={(v) => setScriptTurns(parseInt(v))}>
+                        <SelectTrigger className="text-xs h-8">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="2">2 Turns (Short)</SelectItem>
+                          <SelectItem value="4">4 Turns (Standard)</SelectItem>
+                          <SelectItem value="6">6 Turns (Detailed)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <Button
+                    size="sm"
+                    onClick={() =>
+                      generateScriptMutation.mutate({
+                        scenario: scriptTopic,
+                        language: scriptLanguage,
+                        turns: scriptTurns,
+                        tone,
+                      })
+                    }
+                    disabled={generateScriptMutation.isPending || !scriptTopic}
+                    className="w-full h-8 text-xs gap-1.5 shadow-sm"
+                  >
+                    {generateScriptMutation.isPending ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Zap className="w-3.5 h-3.5" />
+                    )}
+                    Generate Dialogue Script
+                  </Button>
+
+                  {/* Generated Script Display */}
+                  {generatedScript.length > 0 && (
+                    <div className="space-y-2 mt-2 pt-2 border-t border-border/40">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-semibold text-foreground">Generated Dialogue</span>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            setSystemPrompt(
+                              `You are an AI voice assistant. Follow this conversational style and context:\n${generatedScriptText}`
+                            );
+                            toast.success("Applied script context to Agent Prompt!");
+                          }}
+                          className="h-6 text-[10px] gap-1 text-primary hover:text-primary"
+                        >
+                          <Send className="w-3 h-3" />
+                          Apply to Agent Prompt
+                        </Button>
+                      </div>
+
+                      <div className="space-y-1.5 max-h-56 overflow-auto text-xs bg-muted/40 p-2.5 rounded-lg border border-border/40">
+                        {generatedScript.map((line, idx) => (
+                          <div key={idx} className="leading-relaxed">
+                            <span className="font-bold text-primary">{line.speaker}: </span>
+                            <span className="text-foreground/90">{line.text}</span>
                           </div>
                         ))}
                       </div>
-                    )}
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-sm flex items-center gap-2">
-                      <Zap className="w-4 h-4 text-primary" />
-                      Quick Presets
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-2 gap-2">
-                      {[
-                        { label: "Sales Demo", prompt: "You are a professional sales representative. Introduce the product, highlight key benefits, and guide the prospect toward scheduling a demo.", tone: "professional" as const },
-                        { label: "Customer Support", prompt: "You are a helpful customer support agent. Listen carefully, empathize with the customer's issue, and provide clear solutions.", tone: "empathetic" as const },
-                        { label: "Interview Prep", prompt: "You are an experienced interviewer conducting a technical interview. Ask relevant questions, listen to answers, and provide constructive feedback.", tone: "formal" as const },
-                        { label: "Casual Chat", prompt: "You are a friendly conversationalist. Keep the conversation light, engaging, and fun. Ask open-ended questions and share interesting perspectives.", tone: "casual" as const },
-                      ].map(({ label, prompt, tone: presetTone }) => (
-                        <button
-                          key={label}
-                          onClick={() => {
-                            setSystemPrompt(prompt);
-                            setTone(presetTone);
-                            toast.success(`"${label}" preset applied`);
-                          }}
-                          className="flex items-center justify-between gap-2 px-3 py-2.5 rounded-lg text-xs font-medium text-left bg-muted/50 hover:bg-muted border border-transparent hover:border-border transition-all"
-                        >
-                          <span>{label}</span>
-                          <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
-                        </button>
-                      ))}
                     </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-            </Tabs>
-          </div>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
         </div>
       </div>
     </div>
   );
 }
+
