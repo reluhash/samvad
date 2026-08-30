@@ -1,12 +1,13 @@
 # Samvad AI (संवाद)
-### Ultra Low-Latency Conversational Voice AI Platform for Indic & Global Languages
+### Ultra Low-Latency Conversational Voice AI & Zero-Shot Cloning Platform for Indic & Global Languages
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Latency](https://img.shields.io/badge/E2E%20Latency-450--750ms-brightgreen.svg)]()
 [![Hardware](https://img.shields.io/badge/GPU-NVIDIA%20RTX%20A6000%20%7C%20A100-orange.svg)]()
-[![Voice](https://img.shields.io/badge/Languages-Hindi%20%7C%20Hinglish%20%7C%20Indic%20%7C%20English-purple.svg)]()
+[![Voice Cloning](https://img.shields.io/badge/Voice%20Cloning-Zero--Shot%20Neural-purple.svg)]()
+[![Telephony](https://img.shields.io/badge/Telephony-Fonoster%20SIP%20%2F%20PSTN%20Bridge-blueviolet.svg)]()
 
-Samvad AI is a full-duplex, streaming speech-to-speech conversational platform engineered for real-time voice interactions over standard PSTN phone lines and web browsers. It integrates zero-shot voice cloning, streaming speech recognition, high-throughput LLM reasoning, and neural text-to-speech with natural barge-in (interruption) handling.
+Samvad AI is a full-duplex, streaming speech-to-speech conversational platform engineered for real-time voice interactions over standard PSTN/SIP telephone networks and web browsers. It combines zero-shot neural voice cloning, streaming speech recognition, high-throughput LLM reasoning, and natural barge-in (interruption) handling.
 
 ---
 
@@ -17,16 +18,17 @@ Samvad AI is a full-duplex, streaming speech-to-speech conversational platform e
                                   │      Client Applications      │
                                   ├───────────────┬───────────────┤
                                   │  Web Browser  │  Phone (PSTN) │
-                                  │ (Mic/Speaker) │(Mobile/Twilio)│
+                                  │ (Mic/Speaker) │(SIP / Mobile) │
                                   └───────┬───────┴───────┬───────┘
                                           │               │
                             WebRTC/WSS    │               │  μ-law (8kHz PCM)
                                           ▼               ▼
                         ┌──────────────────────────────────────────────────┐
-                        │              Telephony & Gateway Layer           │
-                        │    - Bidirectional Media Streaming               │
-                        │    - PCM16 / μ-law 8kHz <-> 24kHz Transcoding    │
-                        │    - Session Lifecycle & Telemetry Dispatcher    │
+                        │          Fonoster Telephony Bridge               │
+                        │    - Programmable SIP & PSTN Call Dispatching    │
+                        │    - μ-law 8kHz <-> 24kHz PCM16 Transcoding      │
+                        │    - Bidirectional Media Stream WebSockets       │
+                        │    - Session Lifecycle & Event Telemetry Feed    │
                         └─────────────────────────┬────────────────────────┘
                                                   │
                                                   ▼
@@ -36,7 +38,7 @@ Samvad AI is a full-duplex, streaming speech-to-speech conversational platform e
                         │  1. Voice Activity Detection (Silero VAD)        │
                         │  2. Streaming STT (Whisper large-v3-turbo)       │
                         │  3. Reasoning Engine (Gemma 4 26B AWQ / vLLM)    │
-                        │  4. Streaming TTS & Cloning (IndicF5 / Neural)   │
+                        │  4. Zero-Shot TTS & Cloning (IndicF5 / Neural)   │
                         │  5. Full-Duplex Interruption & Barge-In Handler  │
                         └─────────────────────────┬────────────────────────┘
                                                   │
@@ -44,59 +46,103 @@ Samvad AI is a full-duplex, streaming speech-to-speech conversational platform e
                         ┌──────────────────────────────────────────────────┐
                         │           Management & Analytics Hub             │
                         │    - Call Studio (Dual Web/Phone Dialer)         │
-                        │    - Voice Library (Premade & Custom Clones)     │
+                        │    - Neural Voice Cloning & Library Manager      │
                         │    - Real-Time Waveform & Live Transcripts       │
                         │    - Direct Whitelisting & Invite Codes System   │
+                        │    - Local AI Script Generator (vLLM powered)    │
                         └──────────────────────────────────────────────────┘
 ```
 
 ---
 
+## 🎙️ Zero-Shot Neural Voice Cloning Pipeline
+
+Samvad features a zero-shot voice cloning engine capable of replicating any human speaker persona from a 3–5 second audio reference without model fine-tuning or retraining:
+
+```
+[Uploaded Audio Sample] (5s WAV/MP3)
+         │
+         ▼
+┌────────────────────────────────────────────────────────┐
+│ 1. Audio Ingestion & Acoustic Normalization            │
+│    - Resampling to 24kHz 16-bit Mono PCM               │
+│    - Dynamic range compression & silence trimming      │
+└────────────────────────┬───────────────────────────────┘
+                         │
+                         ▼
+┌────────────────────────────────────────────────────────┐
+│ 2. Automated Acoustic-Phonetic Alignment               │
+│    - faster-whisper transcription                      │
+│    - Generation of reference token text (.lab)         │
+└────────────────────────┬───────────────────────────────┘
+                         │
+                         ▼
+┌────────────────────────────────────────────────────────┐
+│ 3. Latent Conditioning & Cluster Distribution          │
+│    - Synchronizes acoustic prompt (ref.wav + ref_text) │
+│      across GPU inference worker nodes                 │
+└────────────────────────┬───────────────────────────────┘
+                         │
+                         ▼
+┌────────────────────────────────────────────────────────┐
+│ 4. Real-Time Zero-Shot Synthesis (F5-TTS / IndicF5)    │
+│    - Conditioned flow matching on target text          │
+│    - First audio chunk generated in < 180ms            │
+│    - Immediate availability across Call Studio dialer  │
+└────────────────────────────────────────────────────────┘
+```
+
+### Cloning Capabilities
+- **Instant Activation**: Uploaded voice profiles are registered in real-time and immediately callable via the Studio dialer or API.
+- **Multilingual Generalization**: Cloned voice profiles can speak in Hindi, Hinglish, English, Tamil, Telugu, and other Indic languages while preserving original speaker timbre, cadence, and vocal acoustics.
+
+---
+
 ## ⚡ Latency Budget & Performance Benchmarks
 
-The pipeline is optimized for sub-second turn-taking to deliver human-like conversational responsiveness:
+The entire pipeline is tuned for sub-second conversational turn-taking:
 
-| Stage | Component / Technology | Target Latency | Notes |
+| Pipeline Stage | Technology / Module | Target Latency | Notes |
 |---|---|---|---|
-| **Audio Ingestion** | WebSocket / WebRTC Gateway | ~15 – 30 ms | Low-jitter streaming |
-| **VAD & Endpointing** | Silero VAD (Chunk: 32ms) | ~60 – 100 ms | Adaptive silence detection |
-| **Speech-to-Text** | Whisper large-v3-turbo (FP16) | ~150 – 220 ms | Streaming partials & final text |
-| **LLM Reasoning (TTFT)** | Gemma 4 26B AWQ-4bit (vLLM Engine) | ~80 – 150 ms | PagedAttention, KV-cache reuse |
-| **Streaming TTS (TTFB)** | IndicF5 / Fast Neural TTS | ~100 – 180 ms | First audio chunk dispatched |
-| **Network & Transcoding**| μ-law / PCM16 Resampling | ~20 – 40 ms | Direct buffer streaming |
-| **Total End-to-End (E2E)**| **Full Conversational Loop** | **~450 – 780 ms** | **Real-time conversational speed** |
+| **Audio Ingestion** | WebSocket / WebRTC | ~15 – 30 ms | Low-jitter buffer |
+| **VAD & Endpointing** | Silero VAD (Chunk: 32ms) | ~60 – 100 ms | Adaptive silence threshold |
+| **Speech-to-Text** | Whisper large-v3-turbo (FP16) | ~150 – 220 ms | Streaming partials & final tokens |
+| **LLM Reasoning (TTFT)** | Gemma 4 26B AWQ-4bit (vLLM Engine) | ~80 – 150 ms | PagedAttention & chunked prefill |
+| **Zero-Shot TTS (TTFB)** | IndicF5 / Fast Neural TTS | ~100 – 180 ms | First audio chunk dispatched |
+| **Transcoding & Streaming**| μ-law / PCM16 Buffer Resampling | ~20 – 40 ms | Zero-copy memory streaming |
+| **Total End-to-End (E2E)**| **Full Conversational Turn** | **~450 – 780 ms** | **Real-time conversational threshold** |
 
-### Concurrency & Throughput
+### Concurrency & Hardware Sizing
 - **Single NVIDIA RTX A6000 (48GB VRAM)**:
   - Supports **50+ concurrent LLM conversational streams** with AWQ-4bit quantization.
   - Streaming STT + TTS accommodates **15–25 concurrent full-duplex audio channels** per GPU.
-- **Scaling to 1,000+ Concurrent Streams**:
-  - Horizontal worker pool with isolated STT/TTS microservices and vLLM multi-GPU inference clusters.
+- **Scaling to 1,000+ Concurrent Calls**:
+  - Horizontal scaling with a worker pool of isolated STT/TTS microservices and a multi-GPU vLLM inference backend.
 
 ---
 
 ## 💻 Hardware & Infrastructure Requirements
 
-### Recommended Production Setup
+### Recommended Server Specifications
 - **GPU**: 1x NVIDIA RTX A6000 (48GB VRAM) or NVIDIA A100 / H100 (80GB)
 - **Host CPU**: 8+ cores (x86_64 or aarch64)
 - **RAM**: 32 GB+ system memory
-- **Storage**: NVMe SSD with 100 GB+ for model weights and cache
+- **Storage**: NVMe SSD with 100 GB+ for model checkpoints and cache
 - **Operating System**: Linux (Ubuntu 22.04 LTS recommended)
-- **Software Stack**:
+- **Runtime Environment**:
   - NVIDIA Driver 535+ & CUDA 12.1+
   - Node.js 20+ & npm / pnpm
-  - Python 3.10+ with PyTorch & vLLM
+  - Python 3.10+ with PyTorch, faster-whisper, and vLLM
 
 ---
 
-## 🌟 Core Features & Capabilities
+## 🌟 Core Features & Modules
 
 ### 1. Dual-Mode Call Studio
-- **💻 Web Call (Mic)**: Direct in-browser testing with live pulsing voice orb, bidirectional speech, and real-time transcripts.
-- **📱 Phone Call (Twilio PSTN)**: Direct outbound phone dialer. Enter any global or Indian mobile number (`+91 98765 43210`) to place immediate real-world phone calls with caller ID support.
+- **💻 Web Call (Mic)**: Browser-based speech test with live pulsing orb, VAD, and bidirectional speech.
+- **📱 Phone Call (Fonoster PSTN Bridge)**: Direct mobile phone dialer. Enter any phone number (`+91 98765 43210`) to dispatch live outbound phone calls.
 
-### 2. Multi-Language & Voice Persona Engine
+### 2. Neural Voice Persona Library
 - **🇮🇳 Indic Neural Voices**:
   - `Aanchal` (Hindi Female - Expressive & Conversational)
   - `Rohit` (Hindi Male - Clear & Balanced)
@@ -105,31 +151,30 @@ The pipeline is optimized for sub-second turn-taking to deliver human-like conve
   - `Chhavi`, `Divya`, `Amol` (Warm, Professional, Energetic)
 - **🌐 Global English Voices**:
   - `Bella` (US Female - Crisp & Cheerful)
-  - `Adam` (US Male - Deep & Authoritative)
-  - `Emma` (UK Female - Articulate)
-- **🎙️ Zero-Shot Voice Cloning**: Upload 5–10 seconds of reference audio to clone any speaker persona with instant synthesis.
+  - `Adam` (US Male - Deep & Confident)
+  - `Emma` (UK Female - Articulate & Formal)
+- **🎙️ Zero-Shot Cloned Voices**: Custom profiles synthesized from short reference audio.
 
-### 3. Linked Presets & 5-Minute Storytelling Mode
-- **Hindi Sales & Outreach**: 1-2 sentence high-conversion sales pitches.
-- **Hindi Customer Support**: Empathetic troubleshooting and resolution.
-- **📖 5-Minute Storytelling Bot**: High-token creative narrative generator capable of sustained multi-minute storytelling.
-- **English Growth & Tech Support**: Conversational English assistants.
-- **Tamil & Telugu Support**: Native regional Indic language support.
+### 3. Linked Presets & 5-Minute Long-Form Mode
+- **Quick Language Toggles**: 1-click switcher between **`🇮🇳 Hindi Default`** and **`🌐 English Default`**.
+- **Hindi Sales & Support**: Optimized for high conversion and customer problem resolution.
+- **📖 5-Minute Storytelling Bot**: High-token creative narrative generator capable of sustained multi-minute speech.
+- **Regional Indic Presets**: Native Tamil and Telugu support.
 
-### 4. Local AI Script Generator
-- Multi-turn voice conversation generator powered directly by the local **vLLM reasoning engine**.
-- Generates realistic dialogues in Hindi, English, Hinglish, Tamil, or Telugu.
-- **1-Click Apply**: Instantly injects the generated dialogue context into the active session prompt.
-- Completely self-hosted with **zero external third-party API dependencies**.
+### 4. Local AI Script Generator (vLLM Powered)
+- Multi-turn voice dialogue generator running on the local **vLLM reasoning engine (Gemma 4 AWQ)**.
+- Generates scripts in Hindi, English, Hinglish, Tamil, or Telugu.
+- **1-Click Apply**: Automatically injects generated dialogue context into the active session prompt.
+- **Zero Third-Party Dependencies**: No external OpenAI API keys required.
 
 ### 5. Access Management & Security
 - **Direct Email Whitelisting**: Pre-approve team members before their first login.
-- **Self-Service Invite Codes / PINs**: Issue custom invite codes (e.g. `SAMVAD-VIP-2026`) for 1-click self-service activation.
-- **Role-Based Gating**: Restrict expensive PSTN calls and GPU-intensive voice cloning to approved accounts.
+- **Invite Codes / Access PINs**: Self-service activation codes (e.g. `SAMVAD-VIP-2026`).
+- **Role-Based Feature Gating**: Protects PSTN calling and GPU-intensive cloning.
 
-### 6. Live Telephony & Infrastructure Health Monitoring
-- Real-time telemetry dashboard monitoring:
-  - Twilio PSTN Bridge status (`Port 5000`)
+### 6. Live Infrastructure Health Monitoring
+- Real-time telemetry dashboard checking:
+  - Fonoster Telephony Bridge status (`Port 5000`)
   - Speech-to-Speech Core status (`Port 8765`)
   - vLLM Inference Gateway status (`Port 8100`)
 
@@ -139,10 +184,10 @@ The pipeline is optimized for sub-second turn-taking to deliver human-like conve
 
 ### 1. Clone & Install Dependencies
 ```bash
-git clone git@github.com:reluhash/samvad.git
+git clone https://github.com/reluhash/samvad.git
 cd samvad
 
-# Install frontend and backend packages
+# Install dependencies
 npm install
 ```
 
@@ -157,23 +202,20 @@ JWT_SECRET=your_jwt_secret_key_here
 LOCAL_ADMIN_EMAIL=admin@voiceforge.local
 LOCAL_ADMIN_PASSWORD=your_secure_password
 
-# Telephony Gateway (Twilio PSTN Bridge)
+# Fonoster Telephony Bridge Gateway
 TELEPHONY_BRIDGE_URL=http://127.0.0.1:5000
-TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-TWILIO_AUTH_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-TWILIO_FROM_NUMBER=+19895898371
 
-# S2S Core & Inference Engine
+# S2S Core & vLLM Inference Engine
 S2S_CORE_WS_URL=ws://127.0.0.1:8765/v1/realtime
 VLLM_API_URL=http://127.0.0.1:8100/v1
 ```
 
 ### 3. Build & Run
 ```bash
-# Build the production bundle
+# Build production bundle
 npm run build
 
-# Start the unified application
+# Start the application
 npm run start
 ```
 
@@ -183,11 +225,10 @@ npm run start
 
 | Protocol | Endpoint | Purpose |
 |---|---|---|
-| **HTTP POST** | `/api/v1/calls/dispatch` | Dispatches outbound phone call via Twilio PSTN |
-| **HTTP POST** | `/twilio/voice` | Twilio webhook returning TwiML with Media Stream instruction |
-| **WebSocket** | `/media/stream/:callId` | Bidirectional 8kHz μ-law audio stream with Twilio |
+| **HTTP POST** | `/api/v1/calls/dispatch` | Dispatches outbound phone call via Fonoster Telephony Bridge |
+| **WebSocket** | `/media/stream/:callId` | Bidirectional 8kHz μ-law audio stream with Telephony Trunk |
 | **WebSocket** | `/v1/realtime` | Low-latency PCM16 audio stream for web browsers |
-| **tRPC API** | `/api/trpc/*` | Type-safe RPC for session management, voices, and scripts |
+| **tRPC API** | `/api/trpc/*` | Type-safe RPC for session management, voices, cloning, and scripts |
 
 ---
 
