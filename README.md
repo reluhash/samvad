@@ -5,9 +5,9 @@
 [![Latency](https://img.shields.io/badge/E2E%20Latency-450--750ms-brightgreen.svg)]()
 [![Hardware](https://img.shields.io/badge/GPU-NVIDIA%20RTX%20A6000%20%7C%20A100-orange.svg)]()
 [![Voice Cloning](https://img.shields.io/badge/Voice%20Cloning-Zero--Shot%20Neural-purple.svg)]()
-[![Telephony](https://img.shields.io/badge/Telephony-Fonoster%20SIP%20%2F%20PSTN%20Bridge-blueviolet.svg)]()
+[![Telephony](https://img.shields.io/badge/Telephony-Fonoster%20Voice%20Bridge-blueviolet.svg)]()
 
-Samvad AI is a full-duplex, streaming speech-to-speech conversational platform engineered for real-time voice interactions over standard PSTN/SIP telephone networks and web browsers. It combines zero-shot neural voice cloning, streaming speech recognition, high-throughput LLM reasoning, and natural barge-in (interruption) handling.
+Samvad AI is a full-duplex, streaming speech-to-speech conversational platform engineered for real-time voice interactions over standard PSTN/SIP telephone networks and web browsers. It combines the **Fonoster Programmable Telephony Bridge**, zero-shot neural voice cloning, streaming speech recognition, high-throughput LLM reasoning, and natural barge-in (interruption) handling.
 
 ---
 
@@ -24,14 +24,14 @@ Samvad AI is a full-duplex, streaming speech-to-speech conversational platform e
                             WebRTC/WSS    │               │  μ-law (8kHz PCM)
                                           ▼               ▼
                         ┌──────────────────────────────────────────────────┐
-                        │          Fonoster Telephony Bridge               │
-                        │    - Programmable SIP & PSTN Call Dispatching    │
+                        │      Fonoster Programmable Telephony Bridge      │
+                        │    - SIP Trunking & Outbound PSTN Dispatcher     │
                         │    - μ-law 8kHz <-> 24kHz PCM16 Transcoding      │
-                        │    - Bidirectional Media Stream WebSockets       │
-                        │    - Session Lifecycle & Event Telemetry Feed    │
+                        │    - Full-Duplex Media Stream WebSockets         │
+                        │    - Active Barge-In & Telemetry Event Broadcast │
                         └─────────────────────────┬────────────────────────┘
                                                   │
-                                                  ▼
+                                                  ▼ (ws://localhost:8765/v1/realtime)
                         ┌──────────────────────────────────────────────────┐
                         │          Speech-to-Speech (S2S) Core             │
                         ├──────────────────────────────────────────────────┤
@@ -45,7 +45,7 @@ Samvad AI is a full-duplex, streaming speech-to-speech conversational platform e
                                                   ▼
                         ┌──────────────────────────────────────────────────┐
                         │           Management & Analytics Hub             │
-                        │    - Call Studio (Dual Web/Phone Dialer)         │
+                        │    - Call Studio (Dual Web/Fonoster Phone Dial)  │
                         │    - Neural Voice Cloning & Library Manager      │
                         │    - Real-Time Waveform & Live Transcripts       │
                         │    - Direct Whitelisting & Invite Codes System   │
@@ -104,12 +104,12 @@ The entire pipeline is tuned for sub-second conversational turn-taking:
 
 | Pipeline Stage | Technology / Module | Target Latency | Notes |
 |---|---|---|---|
-| **Audio Ingestion** | WebSocket / WebRTC | ~15 – 30 ms | Low-jitter buffer |
+| **Audio Ingestion** | Fonoster Bridge / WebRTC | ~15 – 30 ms | Low-jitter buffer |
 | **VAD & Endpointing** | Silero VAD (Chunk: 32ms) | ~60 – 100 ms | Adaptive silence threshold |
 | **Speech-to-Text** | Whisper large-v3-turbo (FP16) | ~150 – 220 ms | Streaming partials & final tokens |
 | **LLM Reasoning (TTFT)** | Gemma 4 26B AWQ-4bit (vLLM Engine) | ~80 – 150 ms | PagedAttention & chunked prefill |
 | **Zero-Shot TTS (TTFB)** | IndicF5 / Fast Neural TTS | ~100 – 180 ms | First audio chunk dispatched |
-| **Transcoding & Streaming**| μ-law / PCM16 Buffer Resampling | ~20 – 40 ms | Zero-copy memory streaming |
+| **Transcoding & Streaming**| Fonoster μ-law / PCM16 Resampling| ~20 – 40 ms | Zero-copy memory streaming |
 | **Total End-to-End (E2E)**| **Full Conversational Turn** | **~450 – 780 ms** | **Real-time conversational threshold** |
 
 ### Concurrency & Hardware Sizing
